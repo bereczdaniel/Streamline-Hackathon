@@ -3,7 +3,7 @@ package eu.streamline.hackathon.flink.scala.job
 import eu.streamline.hackathon.flink.scala.job.IO.{GDELTSource, HttpSink}
 import eu.streamline.hackathon.flink.scala.job.logic.relation.scores.{RelationScoring, ScoreUpdate}
 import eu.streamline.hackathon.flink.scala.job.logic.state.RelationMapState
-import eu.streamline.hackathon.flink.scala.job.utils.Types.{FullStatePostLoad, SimplifiedGDELT}
+import eu.streamline.hackathon.flink.scala.job.utils.Types.{FullStatePostLoad, CountryBasedInteraction}
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.scala._
@@ -22,11 +22,11 @@ object FlinkScalaJob {
 
     source
         .filter(event => event.actor1Code_countryCode != null && event.actor2Code_countryCode != null)
-        .map(event => SimplifiedGDELT(
+        .map(event => CountryBasedInteraction(
           event.actor1Code_countryCode, event.actor2Code_countryCode,
           event.quadClass, Map(1 -> 1, 2 -> 5, 3 -> -1, 4 -> -5), RelationScoring.simpleQuadTranslate))
         .keyBy(_.actor1CountryCode)
-        .map(new RelationMapState[SimplifiedGDELT](ScoreUpdate.weightedSum(0.9)))
+        .map(new RelationMapState[CountryBasedInteraction](ScoreUpdate.weightedSum(0.9)))
         .addSink(new HttpSink[FullStatePostLoad]())
 
 
