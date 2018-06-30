@@ -34,7 +34,8 @@ class HttpSink[T <: BasicPostLoad] extends RichSinkFunction[T]{
       client.execute(post)
     }
     catch {
-      case NoHttpResponseException => log.error("NoHttpResponseException: lost info of" + in)
+      case _: Throwable =>
+        log.error("NoHttpResponseException: lost info of" + in)
     }
 
     client.close()
