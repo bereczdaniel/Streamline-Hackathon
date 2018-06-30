@@ -1,4 +1,4 @@
-package eu.streamline.hackathon.flink.scala.job.logic
+package eu.streamline.hackathon.flink.scala.job.logic.relation.scores
 
 object ScoreUpdate {
 

@@ -1,7 +1,8 @@
 package eu.streamline.hackathon.flink.scala.job
 
 import eu.streamline.hackathon.flink.scala.job.IO.{GDELTSource, HttpSink}
-import eu.streamline.hackathon.flink.scala.job.logic.{RelationMapState, RelationScoring, ScoreUpdate}
+import eu.streamline.hackathon.flink.scala.job.logic.relation.scores.{RelationScoring, ScoreUpdate}
+import eu.streamline.hackathon.flink.scala.job.logic.state.RelationMapState
 import eu.streamline.hackathon.flink.scala.job.utils.Types.{FullStatePostLoad, SimplifiedGDELT}
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.streaming.api.TimeCharacteristic

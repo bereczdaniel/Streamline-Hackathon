@@ -1,4 +1,4 @@
-package eu.streamline.hackathon.flink.scala.job.logic
+package eu.streamline.hackathon.flink.scala.job.logic.state
 
 import eu.streamline.hackathon.flink.scala.job.utils.Types.{BasicInteraction, LightPostLoad}
 import org.apache.flink.api.common.functions.RichMapFunction
