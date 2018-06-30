@@ -6,7 +6,7 @@ object RelationScoring {
     translate(quadClass)
   }
 
-  def normalizedQuadTranslate(quadClass: Int, translate: Map[Int, Double], normalizationParam: Int): Double = {
+  def normalizedQuadTranslate(quadClass: Int, translate: Map[Int, Double])(normalizationParam: Int): Double = {
     translate(quadClass) / normalizationParam
   }
 
