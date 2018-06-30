@@ -10,7 +10,16 @@ object Types {
 
   case class CountryCounter(actor1: String, actor2: String)
 
-  sealed trait BasicPostLoad
+  sealed trait BasicPostLoad extends Product with Serializable
   case class LightPostLoad(actor1: String, actor2: String, score: Double) extends BasicPostLoad
   case class FullStatePostLoad(actor1: String, state: Array[(String, Double)]) extends BasicPostLoad
+  case class StateRequest() extends BasicPostLoad
+
+
+  case class ServerToWorker(pullId: Int, param: Double)
+  case class WorkerToServer(pullId: Int)
+
+  case class Input(actor1: Int, actor2: Int, score: Double)
+
+  case class WorkerOut(actor1: Int, actor2: Int, param: Double)
 }
