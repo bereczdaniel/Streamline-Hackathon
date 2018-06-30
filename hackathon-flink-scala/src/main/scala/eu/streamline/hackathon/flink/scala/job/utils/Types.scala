@@ -4,8 +4,10 @@ object Types {
 
   sealed abstract class BasicInteraction(val actor1: String, val actor2: String, val score: Double)
 
-  case class SimplifiedGDELT(actor1CountryCode: String, actor2CountryCode: String, quadClass: Int, quadScore: Int => Int)
-    extends BasicInteraction(actor1CountryCode, actor2CountryCode, quadScore(quadClass))
+  case class SimplifiedGDELT(
+                              actor1CountryCode: String, actor2CountryCode: String,
+                              quadClass: Int, translate: Map[Int, Double], quadScore: (Int, Map[Int, Double]) => Double)
+    extends BasicInteraction(actor1CountryCode, actor2CountryCode, quadScore(quadClass, translate))
 
   sealed trait BasicPostLoad
   case class LightPostLoad(actor1: String, actor2: String, score: Double) extends BasicPostLoad

@@ -31,7 +31,9 @@ object FlinkScalaJob {
 
     source
         .filter(event => event.actor1Code_countryCode != null && event.actor2Code_countryCode != null)
-        .map(event => SimplifiedGDELT(event.actor1Code_countryCode, event.actor2Code_countryCode, event.quadClass, RelationScoring.simpleQuadTranslate))
+        .map(event => SimplifiedGDELT(
+          event.actor1Code_countryCode, event.actor2Code_countryCode,
+          event.quadClass, Map(1 -> 1, 2 -> 5, 3 -> -1, 4 -> -5), RelationScoring.simpleQuadTranslate))
         .keyBy(_.actor1CountryCode)
         .map(new RelationMapState[SimplifiedGDELT]((a,b) => a+b))
         .addSink(new HttpSink[FullStatePostLoad]())
