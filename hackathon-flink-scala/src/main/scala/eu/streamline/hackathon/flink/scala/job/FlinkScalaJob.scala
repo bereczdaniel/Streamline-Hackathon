@@ -6,7 +6,7 @@ import eu.streamline.hackathon.common.data.GDELTEvent
 import eu.streamline.hackathon.flink.operations.GDELTInputFormat
 import eu.streamline.hackathon.flink.scala.job.IO.HttpSink
 import eu.streamline.hackathon.flink.scala.job.logic.{RelationMapState, RelationScoring}
-import eu.streamline.hackathon.flink.scala.job.utils.Types.SimplifiedGDELT
+import eu.streamline.hackathon.flink.scala.job.utils.Types.{FullStatePostLoad, SimplifiedGDELT}
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.java.utils.ParameterTool
 import org.apache.flink.core.fs.Path
@@ -34,7 +34,7 @@ object FlinkScalaJob {
         .map(event => SimplifiedGDELT(event.actor1Code_countryCode, event.actor2Code_countryCode, event.quadClass, RelationScoring.simpleQuadTranslate))
         .keyBy(_.actor1CountryCode)
         .map(new RelationMapState[SimplifiedGDELT]((a,b) => a+b))
-        .addSink(new HttpSink())
+        .addSink(new HttpSink[FullStatePostLoad]())
 
 
     env.execute("Flink Scala GDELT Analyzer")
