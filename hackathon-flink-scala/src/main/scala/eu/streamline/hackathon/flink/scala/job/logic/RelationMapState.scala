@@ -20,7 +20,7 @@ class RelationMapState[T <: BasicInteraction](paramUpdate: (Double, Double) => D
     if(state.contains(in.actor2))
       state.put(in.actor2, update(state.get(in.actor2), in.score))
     else
-      state.put(in.actor2, in.score)
+      state.put(in.actor2, update(in.score, 0.0))
 
     val res = new ArrayBuffer[(String, Double)]()
 

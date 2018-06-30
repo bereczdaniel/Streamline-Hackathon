@@ -5,7 +5,7 @@ import java.util.Date
 import eu.streamline.hackathon.common.data.GDELTEvent
 import eu.streamline.hackathon.flink.operations.GDELTInputFormat
 import eu.streamline.hackathon.flink.scala.job.IO.HttpSink
-import eu.streamline.hackathon.flink.scala.job.logic.{RelationMapState, RelationScoring}
+import eu.streamline.hackathon.flink.scala.job.logic.{RelationMapState, RelationScoring, ScoreUpdate}
 import eu.streamline.hackathon.flink.scala.job.utils.Types.{FullStatePostLoad, SimplifiedGDELT}
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.api.java.utils.ParameterTool
@@ -35,12 +35,11 @@ object FlinkScalaJob {
           event.actor1Code_countryCode, event.actor2Code_countryCode,
           event.quadClass, Map(1 -> 1, 2 -> 5, 3 -> -1, 4 -> -5), RelationScoring.simpleQuadTranslate))
         .keyBy(_.actor1CountryCode)
-        .map(new RelationMapState[SimplifiedGDELT]((a,b) => a+b))
+        .map(new RelationMapState[SimplifiedGDELT](ScoreUpdate.weightedSum(0.9)))
         .addSink(new HttpSink[FullStatePostLoad]())
 
 
     env.execute("Flink Scala GDELT Analyzer")
-
   }
 
 }
