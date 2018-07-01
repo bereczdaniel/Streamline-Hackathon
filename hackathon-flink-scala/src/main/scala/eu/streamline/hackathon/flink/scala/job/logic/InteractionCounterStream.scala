@@ -1,7 +1,15 @@
 package eu.streamline.hackathon.flink.scala.job.logic
 
+import java.util.Properties
+
+import com.google.gson.Gson
 import eu.streamline.hackathon.common.data.GDELTEvent
+import eu.streamline.hackathon.flink.scala.job.IO.GDELTSource
 import eu.streamline.hackathon.flink.scala.job.utils.Types.{CountryCounter, LightPostLoad, StateRequest}
+import org.apache.flink.api.common.functions.RichFlatMapFunction
+import org.apache.flink.api.common.serialization
+import org.apache.flink.api.common.serialization.SimpleStringSchema
+import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.functions.AssignerWithPeriodicWatermarks
 import org.apache.flink.streaming.api.functions.co.RichCoFlatMapFunction
 import org.apache.flink.streaming.api.scala._
@@ -10,6 +18,7 @@ import org.apache.flink.streaming.api.watermark.Watermark
 import org.apache.flink.streaming.api.windowing.assigners.{TumblingEventTimeWindows, TumblingProcessingTimeWindows}
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow
+import org.apache.flink.streaming.connectors.kafka.{FlinkKafkaConsumer011, FlinkKafkaProducer011}
 import org.apache.flink.util.Collector
 
 import scala.collection.mutable
@@ -20,6 +29,60 @@ class InteractionCounterStream {
 
 
 object InteractionCounterStream {
+
+  def pipeline(pathToGDELT: String, port: String, incrementalTopic: String, fullStateTopic: String, stateReqTopic: String): Unit = {
+    val env = StreamExecutionEnvironment.getExecutionEnvironment
+    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
+
+    val source = GDELTSource
+      .read(env, pathToGDELT)
+      .filter(event => event.actor1Code_countryCode != null && event.actor2Code_countryCode != null)
+
+    val properties = new Properties()
+    properties.setProperty("bootstrap.servers", "localhost:"+port)
+    properties.setProperty("group.id", "hackathon")
+
+    val fullStateRequest = env
+      .addSource(new FlinkKafkaConsumer011[String](stateReqTopic, new serialization.SimpleStringSchema(), properties))
+      .filter(event => event == "yes")
+      .map(_=> StateRequest())
+
+    val common = InteractionCounterStream
+      .generate(source, fullStateRequest)
+
+    val fullState =  common
+      .flatMap(new RichFlatMapFunction[Either[LightPostLoad, Array[(String, String, Double)]], String] {
+        override def flatMap(value: Either[LightPostLoad, Array[(String, String, Double)]], out: Collector[String]): Unit = {
+          value match {
+            case Left(_) =>
+            case Right(update) => out.collect(new Gson().toJson(update))
+          }
+        }
+      })
+
+    val incremental = common
+      .flatMap(new RichFlatMapFunction[Either[LightPostLoad, Array[(String, String, Double)]], LightPostLoad] {
+        override def flatMap(value: Either[LightPostLoad, Array[(String, String, Double)]], out: Collector[LightPostLoad]): Unit = {
+          value match {
+            case Left(update) =>
+              Thread.sleep(10)
+              out.collect(update)
+            case Right(_) =>
+          }
+        }
+      })
+      .map(_.toString)
+
+
+
+    fullState
+      .addSink(new FlinkKafkaProducer011[String]("localhost:"+port, fullStateTopic, new SimpleStringSchema()))
+
+    incremental
+      .addSink(new FlinkKafkaProducer011[String]("localhost:"+port, incrementalTopic, new SimpleStringSchema()))
+
+    env.execute("Flink Scala GDELT Analyzer")
+  }
 
   def generate(src: DataStream[GDELTEvent], stateRequest: DataStream[StateRequest]): DataStream[Either[LightPostLoad, Array[(String, String, Double)]]] = {
     src
