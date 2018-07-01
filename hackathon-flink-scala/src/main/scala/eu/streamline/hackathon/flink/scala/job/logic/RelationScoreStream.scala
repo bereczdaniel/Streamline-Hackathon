@@ -28,10 +28,9 @@ object RelationScoreStream {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
-    val startTime = Calendar.getInstance().getTimeInMillis
     val source = GDELTSource
       .read(env, pathToGDELT)
-      .filter(event => event.actor1Code_countryCode != null && event.actor2Code_countryCode != null && (event.day == null || event.day.getTime <= startTime))
+      .filter(event => event.actor1Code_countryCode != null && event.actor2Code_countryCode != null)
 
     val properties = new Properties()
     properties.setProperty("bootstrap.servers", "localhost:"+port)
@@ -59,8 +58,8 @@ object RelationScoreStream {
         override def flatMap(value: Either[LightPostLoad, Array[(String, String, Double)]], out: Collector[String]): Unit = {
           value match {
             case Left(update) =>
-              Thread.sleep(10)
               out.collect(new Gson().toJson(update))
+              Thread.sleep(30)
             case Right(_) =>
           }
         }
@@ -112,7 +111,6 @@ object RelationScoreStream {
           val key = (value.actor1CountryCode, value.actor2CountryCode)
           val agg = state.getOrElseUpdate(key, (0.0, 0.0, value.ts))
           var score = math.max(math.min( agg._1 * scala.math.exp(-lambda * (value.ts - agg._3)), 100.0), -100.0)
-          println(scala.math.exp(-lambda * (value.ts - agg._3)), value.ts, agg._3)
           score =
             if(score.isNaN)
               0.0
@@ -130,9 +128,9 @@ object RelationScoreStream {
 
           norm = norm + 1
 
-
           state.update(key, (score, norm, value.ts))
-          LightPostLoad(value.actor1CountryCode, value.actor2CountryCode, score / norm)
+
+          out.collect(Left(LightPostLoad(value.actor1CountryCode, value.actor2CountryCode, score / norm)))
         }
 
         override def flatMap2(value: StateRequest, out: Collector[Either[LightPostLoad, Array[(String, String, Double)]]]): Unit =
