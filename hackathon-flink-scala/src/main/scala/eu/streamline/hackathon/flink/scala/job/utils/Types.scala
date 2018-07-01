@@ -2,7 +2,6 @@ package eu.streamline.hackathon.flink.scala.job.utils
 
 import java.io.{ByteArrayInputStream, ByteArrayOutputStream, ObjectInputStream, ObjectOutputStream}
 
-import eu.streamline.hackathon.common.data.GDELTEvent
 import org.apache.flink.api.common.serialization.{DeserializationSchema, SerializationSchema}
 import org.apache.flink.api.common.typeinfo.TypeInformation
 import org.apache.flink.streaming.api.scala.createTypeInformation
@@ -15,7 +14,7 @@ object Types {
   sealed abstract class BasicInteraction(val actor1: String, val actor2: String, val score: Double)
 
   case class CountryBasedInteraction(actor1CountryCode: String, actor2CountryCode: String,
-                                     quadClass: Int, translate: Map[Int, Double], quadScore: (Int, Map[Int, Double]) => Double)
+                                     quadClass: Int, ts: Long, translate: Map[Int, Double], quadScore: (Int, Map[Int, Double]) => Double)
     extends BasicInteraction(actor1CountryCode, actor2CountryCode, quadScore(quadClass, translate))
 
   case class CountryCounter(actor1: String, actor2: String, numInteractions: Int = 1, ts: Long = 0L) extends EventWithTimestamp {

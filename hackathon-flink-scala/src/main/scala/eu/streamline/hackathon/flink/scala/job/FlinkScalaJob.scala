@@ -1,6 +1,6 @@
 package eu.streamline.hackathon.flink.scala.job
 
-import eu.streamline.hackathon.flink.scala.job.logic.InteractionCounterStream
+import eu.streamline.hackathon.flink.scala.job.logic.RelationScoreStream
 import org.apache.flink.api.java.utils.ParameterTool
 
 
@@ -14,8 +14,8 @@ object FlinkScalaJob {
     val requestTopic = parameters.get("reqTopic")
     val port = parameters.get("port")
 
-    InteractionCounterStream
-      .pipeline(pathToGDELT, port, incrementalTopic, fulStateTopic, requestTopic)
+    RelationScoreStream
+      .pipeline(pathToGDELT, port, incrementalTopic, 8*math.pow(10, -9))
   }
 
 }
