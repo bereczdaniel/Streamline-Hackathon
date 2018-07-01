@@ -12,7 +12,6 @@ class HttpSource(url: String, port: Int, endPoint: String) extends SourceFunctio
   def client = new DefaultHttpClient
 
 
-
   override def run(ctx: SourceFunction.SourceContext[StateRequest]): Unit = {
     while(true){
       val response = client.execute(get)
@@ -20,7 +19,6 @@ class HttpSource(url: String, port: Int, endPoint: String) extends SourceFunctio
       answer match {
         case "yes" =>
           ctx.collect(StateRequest())
-          Thread.sleep(10 * 1000)
         case _ =>
       }
 
