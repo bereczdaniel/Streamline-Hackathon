@@ -1,8 +1,8 @@
 package eu.streamline.hackathon.flink.scala.job.logic
 
-import java.util.{Calendar, Properties}
+import java.util.Properties
 
-import com.google.gson.{Gson, GsonBuilder}
+import com.google.gson.Gson
 import eu.streamline.hackathon.common.data.GDELTEvent
 import eu.streamline.hackathon.flink.scala.job.IO.GDELTSource
 import eu.streamline.hackathon.flink.scala.job.logic.relation.scores.RelationScoring
@@ -17,10 +17,6 @@ import org.apache.flink.streaming.connectors.kafka.{FlinkKafkaConsumer011, Flink
 import org.apache.flink.util.Collector
 
 import scala.collection.mutable
-
-class RelationScoreStream {
-
-}
 
 object RelationScoreStream {
 
@@ -59,6 +55,7 @@ object RelationScoreStream {
           value match {
             case Left(update) =>
               out.collect(new Gson().toJson(update))
+              //With TimeCharacteristic = ProcessingTime changes would be too fast
               Thread.sleep(30)
             case Right(_) =>
           }
@@ -92,7 +89,7 @@ object RelationScoreStream {
             event.quadClass,
             try{
               lastTimeStamp = event.day.getTime
-              event.dateAdded.getTime
+              event.day.getTime
             }
             catch {
               case _: NullPointerException => lastTimeStamp
@@ -110,23 +107,8 @@ object RelationScoreStream {
         override def flatMap1(value: CountryBasedInteraction, out: Collector[Either[LightPostLoad, Array[(String, String, Double)]]]): Unit = {
           val key = (value.actor1CountryCode, value.actor2CountryCode)
           val agg = state.getOrElseUpdate(key, (0.0, 0.0, value.ts))
-          var score = math.max(math.min( agg._1 * scala.math.exp(-lambda * (value.ts - agg._3)), 100.0), -100.0)
-          score =
-            if(score.isNaN)
-              0.0
-            else
-              score
-
-          score = score + value.score
-
-          var norm =  math.max(math.min( agg._2 * scala.math.exp(-lambda * (value.ts - agg._3)), 100.0), -100.0)
-          norm =
-            if(norm.isNaN)
-              0.0
-            else
-              norm
-
-          norm = norm + 1
+          val score = calculateUpdate(agg._1, value.score, agg._3, value.ts, lambda)
+          val norm = calculateUpdate(agg._2, 1.0, agg._3, value.ts, lambda)
 
           state.update(key, (score, norm, value.ts))
 
@@ -136,5 +118,16 @@ object RelationScoreStream {
         override def flatMap2(value: StateRequest, out: Collector[Either[LightPostLoad, Array[(String, String, Double)]]]): Unit =
           out.collect(Right((for( (k,v) <- state) yield (k._1, k._2, v._1)).toArray))
       })
+  }
+
+  def calculateUpdate(aggScore: Double, currentScore: Double, lastTS: Long, currentTS: Long, lambda: Double): Double = {
+    var score = math.max(math.min( aggScore * scala.math.exp(-lambda * (currentTS - lastTS)), 100.0), -100.0)
+    score =
+      if(score.isNaN)
+        0.0
+      else
+        score
+
+    score + currentScore
   }
 }

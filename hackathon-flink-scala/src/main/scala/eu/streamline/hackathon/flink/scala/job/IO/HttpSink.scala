@@ -1,7 +1,7 @@
 package eu.streamline.hackathon.flink.scala.job.IO
 
 import com.google.gson.Gson
-import eu.streamline.hackathon.flink.scala.job.utils.Types.{BasicPostLoad, FullStatePostLoad, LightPostLoad, StateRequest}
+import eu.streamline.hackathon.flink.scala.job.utils.Types.{BasicPostLoad, LightPostLoad, StateRequest}
 import org.apache.flink.configuration.Configuration
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction
 import org.apache.http.client.methods.HttpPost
@@ -11,6 +11,14 @@ import org.slf4j.LoggerFactory
 
 import scala.collection.mutable
 
+/**
+  * Sends a POST message with the incoming data / full state to the given url + port + endPointSimple / endPointRestore
+  * @param url
+  * @param port
+  * @param endPointSimple: endpoint for the incremental update
+  * @param endPointRestore: endpoint for full state restore
+  * @tparam T
+  */
 class HttpSink[T <: BasicPostLoad](url: String, port: Int, endPointSimple: String, endPointRestore: String) extends RichSinkFunction[T]{
 
   private lazy val state: mutable.HashMap[(String, String), Double] = new mutable.HashMap[(String, String), Double]()
@@ -69,8 +77,6 @@ class HttpSink[T <: BasicPostLoad](url: String, port: Int, endPointSimple: Strin
   def updateState(in: T): Unit = {
     in match {
       case LightPostLoad(actor1, actor2, score) => state.update((actor1, actor2), score)
-      case FullStatePostLoad(actor1, newState) =>
-        newState.foreach(item => state.update((actor1, item._1), item._2))
     }
   }
 

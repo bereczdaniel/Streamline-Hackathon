@@ -23,13 +23,18 @@ import org.apache.flink.util.Collector
 
 import scala.collection.mutable
 
-class InteractionCounterStream {
-
-}
 
 
 object InteractionCounterStream {
 
+  /**
+    * Count the interactions between the countries. Emit the updates into Kafka topics
+    * @param pathToGDELT: Source file path
+    * @param port: Port number for Kafka
+    * @param incrementalTopic: Kafka topic name for the incremental update
+    * @param fullStateTopic: Kafka topic name for the state restoration
+    * @param stateReqTopic: Kafka topic name for state restoration request
+    */
   def pipeline(pathToGDELT: String, port: String, incrementalTopic: String, fullStateTopic: String, stateReqTopic: String): Unit = {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
@@ -95,15 +100,15 @@ object InteractionCounterStream {
         }
         CountryCounter(a1, a2)
       })
-      .keyBy(_.actor1)
+      .keyBy(_.actor1CountryCode)
       .connect(stateRequest.broadcast)
       .flatMap(new RichCoFlatMapFunction[CountryCounter, StateRequest, Either[LightPostLoad, Array[(String, String, Double)]]] {
         private lazy val state: mutable.HashMap[(String, String), Double] = new mutable.HashMap[(String, String), Double]()
 
         override def flatMap1(value: CountryCounter, out: Collector[Either[LightPostLoad, Array[(String, String, Double)]]]): Unit = {
-          val newScore = state.getOrElseUpdate((value.actor1, value.actor2), 0) + 1
-          out.collect(Left(LightPostLoad(value.actor1, value.actor2, newScore)))
-          state.update((value.actor1, value.actor2), newScore)
+          val newScore = state.getOrElseUpdate((value.actor1CountryCode, value.actor2CountryCode), 0) + 1
+          out.collect(Left(LightPostLoad(value.actor1CountryCode, value.actor2CountryCode, newScore)))
+          state.update((value.actor1CountryCode, value.actor2CountryCode), newScore)
         }
 
         override def flatMap2(value: StateRequest, out: Collector[Either[LightPostLoad, Array[(String, String, Double)]]]): Unit = {
@@ -145,7 +150,7 @@ object InteractionCounterStream {
           cwm
         }
       })
-      .keyBy(x => (x.actor1, x.actor2))
+      .keyBy(x => (x.actor1CountryCode, x.actor2CountryCode))
       .window(TumblingEventTimeWindows.of(Time.seconds(5)))
       .process(new ProcessWindowFunction[CountryCounter, CountryCounter, (String, String), TimeWindow] {
         override def process(key: (String, String), context: Context, elements: Iterable[CountryCounter], out: Collector[CountryCounter]): Unit = {
@@ -154,7 +159,5 @@ object InteractionCounterStream {
           out.collect(CountryCounter(key._1, key._2, score))
         }
       })
-
-    null
   }
 }
