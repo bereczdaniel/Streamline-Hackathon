@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MAP</title>
+  <link href="css/d3.geomap.css" rel="stylesheet">
+</head>
+
+<body>
+  <style>
+    #title{
+      text-align: center;
+      display: block;
+      margin-bottom: 5px;
+    }
+    #activity{
+      position: absolute;
+      left:10px;
+      top:10px;
+      border: 1px solid black;
+      background-color: white;
+      width: 300px;
+      height: 70px;
+      opacity: 0.7;
+    }
+  </style>
+  <h2 id="title">Activity map</h2>
+  <div id="map"></div>
+  <div id="activity"></div>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.3.1/jquery.min.js"></script>
+  <script src="./vendor/d3.geomap.dependencies.min.js"></script>
+  <script src="./js/d3.geomap.min.js"></script>
+  <script src="./js/socket.io.dev.js"></script>
+
+  <script>
+    //chart basics
+    var has_first_render = false;
+    var selection = d3.select('#map');
+    var width = selection.node().getBoundingClientRect().width*0.95;
+    var hight = width / 2;
+    var scale = width / 5.8;
+    var translation = [width / 2, hight / 2];
+    var svg = selection.append('svg').attr('width', width).attr('height', hight);
+    var proj = d3.geo.naturalEarth().scale(scale).translate(translation).precision(.1);
+    var path = d3.geo.path().projection(proj);
+    var extent = null;
+    var colorscale = function(c){return 0;};
+    function rescaleColors(relations){
+      extent = d3.extent(relations);
+      colorscale = d3.scale.quantize().range(colorbrewer.OrRd[9]).domain(extent);
+      let scale = d3.scale.linear().range([0,1]).domain(extent)
+      let interpolator = d3.interpolateRgb('red', 'green');
+      colorscale = function(t){
+        if(typeof t == "undefined"){
+          return undefined;
+        }
+        return interpolator(t);
+      }
+    }
+    var pathcontainer = svg.append('g').attr('class', 'units zoom');
+
+    //function to re-render the chart
+    function render(state_){
+      //update data specific ranges etc.
+      rescaleColors(Object.values(state_.selected_country.relations))
+
+      //join data
+      var paths = pathcontainer.selectAll('path')
+        .data(Object.values(state_.country_info), function(d){return d['id'];})
+
+      //update
+      paths
+        .transition()
+        .duration(300)
+        .style('fill', function(d){
+          if(state_.selection == d.id){
+            return 'yellow';
+          } else {
+            return colorscale(state_.selected_country.relations[d.id]);
+          }
+        })
+
+      //create
+      paths.enter().append('path')
+        .attr('class', function (d) {
+          return 'unit ' + 'unit-' + d.id;
+        })
+        .attr('d', self.path)
+        .on('click', events.onCountryClick)
+      .append('title').text(function(d){return d.id});
+
+      //remove
+      paths.exit().remove();
+
+      has_first_render = true;
+    };
+
+
+    //activity signal
+    var t_maxdiff = 20;
+    var t_maxkeep = 30;
+
+    var activity_svg = d3.select("#activity").append('svg').attr('width',300).attr('height',70);
+    var activity_margin = {top: 5, right: 5, bottom: 5, left: 5};
+    var width = +activity_svg.attr("width") - activity_margin.left - activity_margin.right;
+    var height = +activity_svg.attr("height") - activity_margin.top - activity_margin.bottom;
+    var activity_g = activity_svg
+      .append("g")
+        .attr("transform", "translate(" + activity_margin.left + "," + activity_margin.top + ")");
+
+    var x = d3.scale.linear()
+        .rangeRound([0, width]);
+    var y = d3.scale.linear()
+        .rangeRound([height, 0]);
+    var line = d3.svg.line()
+        .x(function(d) { return x(d.t); })
+        .y(function(d) { return y(d.num); });
+
+    var gpath = activity_g.append("path");
+    var maxn = activity_g.append("text").style("transform", "translateY(0.5em)");
+
+
+    function updateActivityChart(data){
+      var nummax = d3.max(data, function(c) { return c.num; });
+      var nummean = Math.round(d3.mean(data, function(c) { return c.num; }), 1);
+      x.domain(d3.extent(data, function(d) { return d.t; }));
+      y.domain([0,nummax]);
+      maxn.text((nummean*100/t_maxdiff).toString()+" / sec")
+      gpath
+          .attr("fill", "none")
+          .attr("stroke", "steelblue")
+          .attr("stroke-linejoin", "round")
+          .attr("stroke-linecap", "round")
+          .attr("stroke-width", 1.5)
+          .attr("d", function(d) { return line(data); })
+    }
+
+
+    //animations
+    var pause_bg = false;
+    var effects = {
+      nonBlockingTween: function(name, duration, func){
+        d3.select({}).transition()
+          .duration(duration)
+          .tween("style:color", func);
+      },
+      flash: function(path, duration, strokemax = 2) {
+        effects.nonBlockingTween("style:color", duration, function() {
+          var i = d3.interpolateRgb("yellow", "black");
+          var j = d3.interpolateNumber(strokemax,0.5);
+          return function(t) {
+            path.style("stroke", i(t)).style("stroke-width", j(t));
+          };
+        });
+      },
+      setColor: function(path, color, duration){
+        if(pause_bg){
+          return;
+        }
+        var oldcolor = path.style('fill');
+        effects.nonBlockingTween("style:full", duration, function() {
+          var i = d3.interpolateRgb(oldcolor, color);
+          return function(t) {
+            path.style("fill", i(t));
+          };
+        });
+      }
+    }
+
+    //utils
+    function epochTime(){
+      var ts = Math.round((new Date()).getTime() / 10);
+      return ts;
+    }
+
+    //state, mutators, and events
+    const null_country = {relations: {}};
+    var state = {
+      country_info: {},
+      selection: null,
+      selected_country: null_country,
+      t_values: [],
+      unfinished_t: {t_start:0, num:0}
+    };
+    state.unfinished_t.t_start = epochTime();
+    var stateMutators = {
+      updatePairWeight: function(c1, c2, score){
+        if(c1 in state.country_info && c2 in state.country_info){
+          if(!('relations' in state.country_info[c1])){
+            state.country_info[c1]['relations'] = {};
+          }
+          if(state.country_info[c1]['relations'][c2] != score){
+            state.country_info[c1]['relations'][c2] = score;
+            events.pairWeightUpdated(c1,c2,score);
+          }
+        }
+      },
+      updateWeightsBatch: function(weight_map){
+        render(state)
+        for(let actor1 in weight_map){
+          for(let actor2 in weight_map[actor1]){
+            stateMutators.updatePairWeight(actor1, actor2, weight_map[actor1][actor2]);
+            stateMutators.updatePairWeight(actor2, actor1, weight_map[actor1][actor2]);
+          }
+        }
+        render(state)
+      },
+      setSelectedCountry: function(code){
+        state.selection = code;
+        if(code === null){
+          state.selected_country = null_country;
+          $('#title').text('Activity map');
+        } else {
+          state.selected_country = state.country_info[code];
+          $('#title').text(code + ' relations');
+        }
+        render(state);
+      },
+      newT: function(t){
+        while(state.unfinished_t.t_start + t_maxdiff < t){
+          var last_start = state.unfinished_t.t_start
+          state.t_values.push({
+            t: last_start,
+            num: state.unfinished_t.num
+          })
+          if(state.t_values.length > t_maxkeep){
+            state.t_values.shift()
+          }
+          events.tValuePushed()
+          state.unfinished_t = {
+            t_start: last_start + t_maxdiff,
+            num: 0
+          }
+        }
+        state.unfinished_t.num += 1
+      }
+    }
+    var events = {
+      pairWeightUpdated: function(c1, c2, score){
+        if(state.selection == c1 && state.selection != c2){
+          if(score > extent[1] || score < extent[0]){
+            rescaleColors([extent[0], extent[1], score]);
+          }
+          var country = d3.select('.unit-'+c2);
+          effects.flash(country, 1000);
+          effects.setColor(country, colorscale(score), 500);
+        }
+        var c1vals = Object.values(state.country_info[c1].relations)
+        if(has_first_render){
+          var new_c1_rel = c1vals.reduce(function(a,b){return a+b;}, 0) / c1vals.length || 1
+          if(null_country.relations[c1] != new_c1_rel){
+            null_country.relations[c1] = new_c1_rel
+            if(state.selection === null){
+              var country = d3.select('.unit-'+c1);
+              effects.flash(country, 200, 1);
+              effects.setColor(country, colorscale(score), 200);
+            }
+          }
+
+          var c2vals = Object.values(state.country_info[c2].relations)
+          var new_c2_rel = c2vals.reduce(function(a,b){return a+b;}, 0) / c2vals.length || 1
+          if(null_country.relations[c2] != new_c2_rel){
+            null_country.relations[c2] = new_c2_rel
+            if(state.selection === null){
+              var country = d3.select('.unit-'+c2);
+              effects.flash(country, 200, 1);
+              effects.setColor(country, colorscale(score), 200);
+            }
+          }
+        }
+      },
+      onCountryClick: function(d){
+        pause_bg = true
+        if(state.selection == d.id){
+          stateMutators.setSelectedCountry(null);
+        } else {
+          stateMutators.setSelectedCountry(d.id);
+        }
+        pause_bg = false
+      },
+      tValuePushed: function(){
+        updateActivityChart(state.t_values);
+      }
+    }
+
+    //fetch and fill country data from file, then fetch current world map state
+    d3.json('topojson/world/countries.json', function (error, geo) {
+      var geodata = topojson.feature(geo, geo.objects['units']).features;
+      geodata.forEach(function(d){
+        state.country_info[d.id]=d
+        state.country_info[d.id]['relations']={}
+      })
+
+      //fetch state in batch
+      function full_update(){
+        fetch('http://localhost:8081/state')
+          .then(function(response){
+            return response.json();
+          }, function(error){
+            console.log("no response", error);
+          })
+          .then(function(json){
+            stateMutators.updateWeightsBatch(json);
+          }, function(error){
+            console.log("cannot parse json", error);
+          });
+      }
+      full_update();
+    });
+
+    setInterval(function(){
+      render(state);
+    },1000);
+
+    //listen for changes
+    var socket = io.connect('http://localhost:8081');
+    socket.on('score', function(data){
+      stateMutators.updatePairWeight(data.actor1, data.actor2, data.score);
+      stateMutators.updatePairWeight(data.actor2, data.actor1, data.score);
+      stateMutators.newT(epochTime());
+    })
+    socket.on('state', function(data){
+      pause_bg = true;
+      for(let d of data){
+        stateMutators.updatePairWeight(d.actor1, d.actor2, d.score);
+        stateMutators.updatePairWeight(d.actor2, d.actor1, d.score);
+      }
+      pause_bg = false;
+      render(state)
+    })
+
+  </script>
+  
+</body>
+</html>
