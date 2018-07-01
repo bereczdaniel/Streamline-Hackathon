@@ -1,6 +1,6 @@
 package eu.streamline.hackathon.flink.scala.job.logic
 
-import java.util.Properties
+import java.util.{Calendar, Properties}
 
 import com.google.gson.{Gson, GsonBuilder}
 import eu.streamline.hackathon.common.data.GDELTEvent
@@ -28,9 +28,10 @@ object RelationScoreStream {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
     env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
 
+    val startTime = Calendar.getInstance().getTimeInMillis
     val source = GDELTSource
       .read(env, pathToGDELT)
-      .filter(event => event.actor1Code_countryCode != null && event.actor2Code_countryCode != null)
+      .filter(event => event.actor1Code_countryCode != null && event.actor2Code_countryCode != null && (event.day == null || event.day.getTime <= startTime))
 
     val properties = new Properties()
     properties.setProperty("bootstrap.servers", "localhost:"+port)
@@ -78,7 +79,7 @@ object RelationScoreStream {
     src
       .map(new MapFunction[GDELTEvent, CountryBasedInteraction] {
 
-        private var lastTimeStamp: Long = 0L
+        private var lastTimeStamp: Long = 1490738400000L
         override def map(event: GDELTEvent): CountryBasedInteraction = {
           val (a1,a2) = {
             if(event.actor1Code_countryCode > event.actor2Code_countryCode)
@@ -91,7 +92,7 @@ object RelationScoreStream {
             a1, a2,
             event.quadClass,
             try{
-              lastTimeStamp = event.dateAdded.getTime
+              lastTimeStamp = event.day.getTime
               event.dateAdded.getTime
             }
             catch {
@@ -105,20 +106,33 @@ object RelationScoreStream {
       .keyBy(event => (event.actor1CountryCode, event.actor2CountryCode))
       .connect(stateRequest.broadcast)
       .flatMap(new RichCoFlatMapFunction[CountryBasedInteraction, StateRequest, Either[LightPostLoad,  Array[(String, String, Double)]]] {
-        private lazy val state: mutable.HashMap[(String, String), (Double, Long)] = new mutable.HashMap[(String, String), (Double, Long)]()
+        private lazy val state: mutable.HashMap[(String, String), (Double, Double, Long)] = new mutable.HashMap[(String, String), (Double, Double, Long)]()
 
         override def flatMap1(value: CountryBasedInteraction, out: Collector[Either[LightPostLoad, Array[(String, String, Double)]]]): Unit = {
           val key = (value.actor1CountryCode, value.actor2CountryCode)
-          val agg = state.getOrElseUpdate(key, (0, value.ts))
-          val newScore = math.max(math.min( agg._1 * scala.math.exp(-lambda * (value.ts - agg._2)) + value.score, 100.0), -100.0)
-          val correctedScore =
-            if(newScore.isNaN)
-              value.score
+          val agg = state.getOrElseUpdate(key, (0.0, 0.0, value.ts))
+          var score = math.max(math.min( agg._1 * scala.math.exp(-lambda * (value.ts - agg._3)), 100.0), -100.0)
+          println(scala.math.exp(-lambda * (value.ts - agg._3)), value.ts, agg._3)
+          score =
+            if(score.isNaN)
+              0.0
             else
-              newScore
+              score
 
-          state.update(key, (value.score, value.ts))
-          LightPostLoad(value.actor1CountryCode, value.actor2CountryCode, correctedScore)
+          score = score + value.score
+
+          var norm =  math.max(math.min( agg._2 * scala.math.exp(-lambda * (value.ts - agg._3)), 100.0), -100.0)
+          norm =
+            if(norm.isNaN)
+              0.0
+            else
+              norm
+
+          norm = norm + 1
+
+
+          state.update(key, (score, norm, value.ts))
+          LightPostLoad(value.actor1CountryCode, value.actor2CountryCode, score / norm)
         }
 
         override def flatMap2(value: StateRequest, out: Collector[Either[LightPostLoad, Array[(String, String, Double)]]]): Unit =

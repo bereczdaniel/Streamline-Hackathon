@@ -15,7 +15,7 @@ object FlinkScalaJob {
     val port = parameters.get("port")
 
     RelationScoreStream
-      .pipeline(pathToGDELT, port, incrementalTopic, 8*math.pow(10, -9))
+      .pipeline(pathToGDELT, port, incrementalTopic, fulStateTopic, requestTopic, 8*math.pow(10, -9))
   }
 
 }
