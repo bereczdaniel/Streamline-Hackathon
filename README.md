@@ -10,8 +10,13 @@ A quick presentation can be found here: https://docs.google.com/presentation/d/1
 
 ## References
 [1] Streamline Hackathon 2018: http://big-data-berlin.dima.tu-berlin.de/streamline-hackathon-2018/
+
 [2] GDELT Projet: https://www.gdeltproject.org
+
 [3] Apache Flink: https://ci.apache.org/projects/flink/flink-docs-release-1.5/quickstart/setup_quickstart.html
+
 [4] Node.js: https://nodejs.org/en/
+
 [5] D3.js: https://d3js.org/
+
 [6] MTA SZTAKI: https://www.sztaki.hu/en/science/departments/infolab
