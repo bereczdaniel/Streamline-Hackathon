@@ -2,7 +2,7 @@ package eu.streamline.hackathon.flink.scala.job.IO
 
 import java.io.{File, PrintWriter}
 
-import eu.streamline.hackathon.flink.scala.job.ParameterServer.{Parameter, ParameterOutput}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types.{Parameter, ParameterOutput}
 import org.apache.flink.streaming.api.functions.sink.RichSinkFunction
 
 import scala.collection.mutable
