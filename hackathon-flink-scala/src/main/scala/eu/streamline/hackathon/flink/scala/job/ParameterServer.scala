@@ -100,7 +100,7 @@ object ParameterServer {
           model.update(rating.itemId, vectorSum(itemDelta, itemVector))
 
           out.collect(Right(Push(value.id, userDelta)))
-          out.collect(Left(WorkerOut()))
+          out.collect(Left(WorkerOut(rating.itemId, model(rating.itemId))))
         }
       })
 
@@ -123,6 +123,7 @@ object ParameterServer {
         }
       })
       .writeAsText(workerOutFile, FileSystem.WriteMode.OVERWRITE)
+      .setParallelism(1)
 
 
     // ServerLogic
@@ -130,9 +131,9 @@ object ParameterServer {
     val serverLogic = workerToServer
       .mapWithState((msg: WorkerToServer, state: Option[Parameter]) => {
         msg match {
-          case Push(_, deltaParam) =>
-            val currentParam = state.get
-            (Left(ServerOut()), Some(vectorSum(currentParam, deltaParam)))
+          case Push(id, deltaParam) =>
+            val newParam = vectorSum(state.get, deltaParam)
+            (Left(ServerOut(id, newParam)), Some(newParam))
 
           case Pull(id, source) =>
             val param = state.getOrElse(factorInitDesc.open().nextFactor(id))
@@ -158,7 +159,8 @@ object ParameterServer {
         case Right(_) =>
       }
     })
-      .writeAsText(serverOutFile, FileSystem.WriteMode.OVERWRITE)
+        .writeAsText(serverOutFile, FileSystem.WriteMode.OVERWRITE)
+        .setParallelism(1)
 
 
 
@@ -181,8 +183,13 @@ object ParameterServer {
   }
 
   case class Rating(userId: UserId, itemId: ItemId, rating: Double)
-  case class WorkerOut()
-  case class ServerOut()
+
+  sealed abstract class ParameterOutput(val id: Int, val parameter: Parameter){
+    override def toString: String =
+      id.toString + ":" + parameter.tail.foldLeft(parameter.head.toString)((acc, c) => acc + "," + c.toString)
+  }
+  case class WorkerOut(itemId: Int, params: Parameter) extends ParameterOutput(itemId, params)
+  case class ServerOut(userId: Int, params: Parameter) extends ParameterOutput(userId, params)
   case class ServerToWorker(id: Int, source: Int, parameter: Parameter) {
     override def toString: String =
       id.toString + ":" + source.toString + ":" + parameter.tail.foldLeft(parameter.head.toString)((acc, c) => acc + "," + c.toString)
