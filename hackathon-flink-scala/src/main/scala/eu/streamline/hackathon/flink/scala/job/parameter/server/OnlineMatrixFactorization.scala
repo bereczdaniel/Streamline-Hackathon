@@ -11,7 +11,7 @@ object OnlineMatrixFactorization {
 
   def main(args: Array[String]): Unit = {
     val env = StreamExecutionEnvironment.getExecutionEnvironment
-    env.setParallelism(1)
+    env.setParallelism(4)
 
 
     lazy val factorInitDesc = RangedRandomFactorInitializerDescriptor(10, -0.01, 0.01)

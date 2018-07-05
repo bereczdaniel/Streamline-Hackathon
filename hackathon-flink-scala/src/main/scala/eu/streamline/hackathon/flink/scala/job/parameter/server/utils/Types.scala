@@ -20,9 +20,9 @@ object Types {
 
 
   sealed abstract class Message(val destination: Int, val source: Int)
-  case class PullAnswer(targetId: Int, override val source: Int, parameter: Parameter) extends Message(targetId, source) {
+  case class PullAnswer(targetId: Int, workerSource: Int, parameter: Parameter) extends Message(workerSource, targetId) {
     override def toString: String =
-      targetId.toString + ":" + source.toString + ":" + parameter.tail.foldLeft(parameter.head.toString)((acc, c) => acc + "," + c.toString)
+      targetId.toString + ":" + workerSource.toString + ":" + parameter.tail.foldLeft(parameter.head.toString)((acc, c) => acc + "," + c.toString)
   }
 
   def pullAnswerFromString(line: String): PullAnswer = {
@@ -35,7 +35,7 @@ object Types {
       "Push:" + targetId.toString + ":" + parameter.tail.foldLeft(parameter.head.toString)((acc, c) => acc + "," + c.toString)
     }
   }
-  case class Pull(targetId: Int, override val source: Int) extends Message(targetId, source) {
+  case class Pull(targetId: Int, workerSource: Int) extends Message(targetId, workerSource) {
     override def toString: String =
       "Pull:" + targetId.toString + ":" + source.toString
   }

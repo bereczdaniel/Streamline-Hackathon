@@ -13,8 +13,8 @@ class SimpleServerLogic(_init: Int => Parameter, _update: (Parameter, Parameter)
 
   override def map(value: Message): Either[ParameterServerOutput, PullAnswer] = {
     value match {
-      case Pull(id, source) =>
-        Right(PullAnswer(id, source, state.getOrElseUpdate(id, init(id))))
+      case Pull(targetId, workerSource) =>
+        Right(PullAnswer(targetId, workerSource, state.getOrElseUpdate(targetId, init(targetId))))
       case Push(id, parameter) =>
         state.update(id, update(parameter, state.getOrElseUpdate(id, init(id))))
         Left(VectorModelOutput(id, state(id)))
