@@ -6,7 +6,6 @@ import eu.streamline.hackathon.flink.scala.job.parameter.server.IO.ParameterServ
 import eu.streamline.hackathon.flink.scala.job.parameter.server.server.logic.ServerLogic
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types._
 import eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic.WorkerLogic
-import org.apache.flink.api.common.functions.Partitioner
 import org.apache.flink.api.common.serialization
 import org.apache.flink.api.common.serialization.SimpleStringSchema
 import org.apache.flink.streaming.api.scala._
@@ -14,9 +13,9 @@ import org.apache.flink.streaming.connectors.kafka.{FlinkKafkaConsumer011, Flink
 import org.apache.flink.util.Collector
 
 class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvironment,
-                      host: String, port: String, serverToWorkerTopic: String, workerToServerTopic: String, path: String,
-                      workerLogic: WorkerLogic, serverLogic: ServerLogic, broadcastWorkerInput: Boolean = false,
-                      workerInputParse: String => WorkerInput, workerToServerParse: String => Message) {
+                                                        host: String, port: String, serverToWorkerTopic: String, workerToServerTopic: String, path: String,
+                                                        workerLogic: WorkerLogic, serverLogic: ServerLogic, broadcastServerToWorkers: Boolean = false,
+                                                        workerInputParse: String => WorkerInput, workerToServerParse: String => Message) {
 
   def pipeline(): ConnectedStreams[ParameterServerOutput, ParameterServerOutput] = {
     init()
@@ -67,13 +66,9 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
   }
 
   def workerInput(inputStream: DataStream[WorkerInput], serverToWorkerStream: DataStream[PullAnswer]): ConnectedStreams[PullAnswer, WorkerInput] = {
-    if (broadcastWorkerInput)
-      serverToWorkerStream
-          .partitionCustom(new Partitioner[Int] {
-            override def partition(key: ItemId, numPartitions: ItemId): ItemId =
-              key % numPartitions
-          }, (x: PullAnswer) => x.workerSource)
-        .connect(inputStream.broadcast)
+    if (broadcastServerToWorkers)
+      serverToWorkerStream.broadcast
+        .connect(inputStream.keyBy(_.id))
     else
       serverToWorkerStream
         .connect(inputStream)

@@ -27,7 +27,7 @@ object OnlineTrainAndEval {
     val ps = new ParameterServer(
       env, "localhost:", "9093", "serverToWorkerTopic", "workerToServerTopic", "data/test_batch.csv",
       new TrainAndEvalWorkerLogic(0.01, 10, -0.01, 0.01, 50, 9),
-      new SimpleServerLogic(x => factorInitDesc.open().nextFactor(x),  { (vec, deltaVec) => Types.vectorSum(vec, deltaVec)}), broadcastWorkerInput = true,
+      new SimpleServerLogic(x => factorInitDesc.open().nextFactor(x),  { (vec, deltaVec) => Types.vectorSum(vec, deltaVec)}), broadcastServerToWorkers = true,
       workerInputParse =  workerInputParse, workerToServerParse =  workerToServerParse)
 
     val psOutput = ps.pipeline()
@@ -48,7 +48,7 @@ object OnlineTrainAndEval {
       .process(new ProcessWindowFunction[EvaluationOutput, Double, Long, TimeWindow] {
         override def process(key: Long, context: Context, elements: Iterable[EvaluationOutput], out: Collector[Double]): Unit = {
           val topK = elements.map(_.topK).fold(List())((a,b) => a ::: b).sortBy(-_._2).map(_._1).distinct.take(K)
-          val targetItemId = elements.head.itemId
+          val targetItemId = elements.map(_.itemId).max
           out.collect(ndcg(topK, targetItemId))
         }
       })

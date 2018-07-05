@@ -26,7 +26,7 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, rangeMin: D
           mutable.Queue[EvaluationRequest]()
         ).enqueue(eval)
 
-        out.collect(Right(Pull(eval.userId, workerId)))
+        out.collect(Right(Pull(eval.userId, eval.evaluationId.toInt)))
 
       case _ =>
         throw new NotSupportedWorkerInput
@@ -36,19 +36,21 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, rangeMin: D
 
 
   override def flatMap1(value: Types.PullAnswer, out: Collector[Either[Types.ParameterServerOutput, Types.Message]]): Unit = {
-    val request = requestQueue(value.targetId).dequeue()
     val userVector = value.parameter
-
     val topK: TopK = generateLocalTopK(userVector)
 
-    out.collect(Left(EvaluationOutput(request.itemId, request.evaluationId, topK)))
+    try{
+      val request = requestQueue(value.targetId).dequeue()
 
+      val itemVector = model.getOrElseUpdate(request.itemId, factorInitDesc.open().nextFactor(request.itemId))
 
-    val itemVector = model.getOrElseUpdate(request.itemId, factorInitDesc.open().nextFactor(request.itemId))
-
-    if((request.itemId % getRuntimeContext.getNumberOfParallelSubtasks) == 0){
       val userDelta: Parameter = train(userVector, request, itemVector)
       out.collect(Right(Push(value.targetId, userDelta)))
+      out.collect(Left(EvaluationOutput(request.itemId, request.evaluationId, topK)))
+    }
+    catch {
+      case _ : NoSuchElementException =>
+        out.collect(Left(EvaluationOutput(-1, value.workerSource, topK)))
     }
   }
 
