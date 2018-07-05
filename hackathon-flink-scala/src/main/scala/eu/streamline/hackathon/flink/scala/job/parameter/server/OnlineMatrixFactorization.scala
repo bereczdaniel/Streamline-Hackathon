@@ -22,7 +22,11 @@ object OnlineMatrixFactorization {
       new SimpleServerLogic(x => factorInitDesc.open().nextFactor(x),  { (vec, deltaVec) => Types.vectorSum(vec, deltaVec)}),
       workerInputParse =  workerInputParse, workerToServerParse =  workerToServerParse)
 
-    ps.pipeline()
+    val psOutput = ps.pipeline()
+
+    psOutput.map(x => x, y => y).writeAsText("data/output/model")
+
+    env.execute()
   }
 
   def workerInputParse(line: String): Rating = {

@@ -14,13 +14,13 @@ import org.apache.flink.util.Collector
 
 class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvironment,
                       host: String, port: String, serverToWorkerTopic: String, workerToServerTopic: String, path: String,
-                      workerLogic: WorkerLogic, serverLogic: ServerLogic, serverOutputSink: Out = null, workerOutputSink: Out = null,
+                      workerLogic: WorkerLogic, serverLogic: ServerLogic,
                       workerInputParse: String => WorkerInput, workerToServerParse: String => Message) {
 
-  def pipeline(): Unit = {
+  def pipeline(): ConnectedStreams[ParameterServerOutput, ParameterServerOutput] = {
     init()
 
-    workerSink(
+    val workerOut = workerToServerStream(
       wl(
         workerInput(
           inputStream(),
@@ -29,13 +29,14 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
       )
     )
 
-    serverSink(
+    val serverOut = serverToWorkerStream(
       sl(
         workerToServer()
       )
     )
 
-    env.execute()
+    workerOut
+      .connect(serverOut)
   }
 
   lazy val properties = new Properties()
@@ -80,7 +81,7 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
       .map(serverLogic)
   }
 
-  def serverSink(serverLogicStream: DataStream[Either[ParameterServerOutput, PullAnswer]]): Unit = {
+  def serverToWorkerStream(serverLogicStream: DataStream[Either[ParameterServerOutput, PullAnswer]]): DataStream[ParameterServerOutput] = {
     serverLogicStream
       .flatMap[String]((value: Either[ParameterServerOutput, PullAnswer], out: Collector[String]) => {
       value match {
@@ -92,21 +93,19 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
     })
       .addSink(new FlinkKafkaProducer011[String](host + port, serverToWorkerTopic, new SimpleStringSchema()))
 
-    serverOutputSink match {
-      case null =>
-      case _ =>
-        serverLogicStream
-          .flatMap[ParameterServerOutput]((value: Either[ParameterServerOutput, PullAnswer], out: Collector[ParameterServerOutput]) => {
-          value match {
-            case Left(x) => out.collect(x)
-            case Right(_) =>
-          }
-        })
-          .addSink(serverOutputSink)
-    }
+    serverLogicStream
+      .flatMap[ParameterServerOutput]((value: Either[ParameterServerOutput, Message], out: Collector[ParameterServerOutput]) => {
+      value match {
+        case Left(x) =>
+          val a = x
+          out.collect(a)
+        case Right(_) =>
+      }
+    })
   }
 
-  def workerSink(workerLogicStream: DataStream[Either[ParameterServerOutput, Message]]): Unit = {
+
+  def workerToServerStream(workerLogicStream: DataStream[Either[ParameterServerOutput, Message]]): DataStream[ParameterServerOutput] = {
     workerLogicStream
       .flatMap[String]((value: Either[ParameterServerOutput, Message], out: Collector[String]) => {
       value match {
@@ -118,17 +117,14 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
     })
       .addSink(new FlinkKafkaProducer011[String](host + port, workerToServerTopic,  new SimpleStringSchema()))
 
-    workerOutputSink match {
-      case null =>
-      case _ =>
-        workerLogicStream
-          .flatMap[ParameterServerOutput]((value: Either[ParameterServerOutput, Message], out: Collector[ParameterServerOutput]) => {
-          value match {
-            case Left(x) => out.collect(x)
-            case Right(_) =>
-          }
-        })
-          .addSink(workerOutputSink)
-    }
+    workerLogicStream
+      .flatMap[ParameterServerOutput]((value: Either[ParameterServerOutput, Message], out: Collector[ParameterServerOutput]) => {
+      value match {
+        case Left(x) =>
+          val a = x
+          out.collect(a)
+        case Right(_) =>
+      }
+    })
   }
 }
