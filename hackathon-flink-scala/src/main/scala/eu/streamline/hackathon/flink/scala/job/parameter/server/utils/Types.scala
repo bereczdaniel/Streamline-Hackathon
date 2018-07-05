@@ -4,7 +4,7 @@ object Types {
 
   sealed abstract class WorkerInput(val id: Int)
   case class Rating(userId: UserId, itemId: ItemId, rating: Double) extends WorkerInput(itemId)
-  case class EvaluationRequest(userId: UserId, itemId: ItemId, recommendationId: Int, rating: Rating) extends WorkerInput(itemId)
+  case class EvaluationRequest(userId: UserId, itemId: ItemId, evaluationId: Long, rating: Double) extends WorkerInput(itemId)
   case class RecommendationRequest(userId: UserId, recommendationId: Int) extends WorkerInput(userId)
   case class NegativeExample(userId: UserId, itemId: ItemId, rating: Rating) extends WorkerInput(itemId)
 
@@ -17,6 +17,7 @@ object Types {
     override def toString: String =
       userId.toString + ":" + topK.tail.foldLeft(topK.head.toString)((acc, c) => acc + "," + c.toString)
   }
+  case class EvaluationOutput(itemId: ItemId, evaluationId: Long, topK: TopK) extends ParameterServerOutput
 
 
   sealed abstract class Message(val destination: Int, val source: Int)
@@ -43,7 +44,7 @@ object Types {
   type Parameter = Array[Double]
   type UserId = Int
   type ItemId = Int
-  type TopK = Array[ItemId]
+  type TopK = List[(ItemId, Double)]
 
 
   /**
@@ -67,4 +68,25 @@ object Types {
     }
     res
   }
+
+  def dotProduct(u: Parameter, v: Parameter): Double = {
+    var res = 0.0
+    var i = 0
+    val n = u.length  // assuming u and v have the same number of factors
+    while (i < n) {
+      res += u(i) * v(i)
+      i += 1
+    }
+    res
+  }
 }
+
+object IDGenerator {
+  private val n = new java.util.concurrent.atomic.AtomicLong
+
+  /**
+    * Generates a random rating ID
+    */
+  def next: Long = n.getAndIncrement()
+}
+

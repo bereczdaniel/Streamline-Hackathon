@@ -6,6 +6,7 @@ import eu.streamline.hackathon.flink.scala.job.parameter.server.IO.ParameterServ
 import eu.streamline.hackathon.flink.scala.job.parameter.server.server.logic.ServerLogic
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types._
 import eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic.WorkerLogic
+import org.apache.flink.api.common.functions.Partitioner
 import org.apache.flink.api.common.serialization
 import org.apache.flink.api.common.serialization.SimpleStringSchema
 import org.apache.flink.streaming.api.scala._
@@ -68,7 +69,10 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
   def workerInput(inputStream: DataStream[WorkerInput], serverToWorkerStream: DataStream[PullAnswer]): ConnectedStreams[PullAnswer, WorkerInput] = {
     if (broadcastWorkerInput)
       serverToWorkerStream
-        .keyBy(_.workerSource)
+          .partitionCustom(new Partitioner[Int] {
+            override def partition(key: ItemId, numPartitions: ItemId): ItemId =
+              key % numPartitions
+          }, (x: PullAnswer) => x.workerSource)
         .connect(inputStream.broadcast)
     else
       serverToWorkerStream
@@ -91,8 +95,7 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
       .flatMap[String]((value: Either[ParameterServerOutput, PullAnswer], out: Collector[String]) => {
       value match {
         case Right(x) =>
-          val a = x.toString
-          out.collect(a)
+          out.collect(x.toString)
         case Left(_) =>
       }
     })

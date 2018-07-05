@@ -5,6 +5,7 @@ import eu.streamline.hackathon.flink.scala.job.parameter.server.server.logic.Sim
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types._
 import eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic.OnlineMFWorker
+import org.apache.flink.core.fs.FileSystem
 import org.apache.flink.streaming.api.scala._
 
 object OnlineMatrixFactorization {
@@ -24,7 +25,7 @@ object OnlineMatrixFactorization {
 
     val psOutput = ps.pipeline()
 
-    psOutput.map(x => x, y => y).writeAsText("data/output/model")
+    psOutput.map(x => x, y => y).writeAsText("data/output/model", FileSystem.WriteMode.OVERWRITE)
 
     env.execute()
   }
