@@ -5,14 +5,17 @@ import eu.streamline.hackathon.flink.scala.job.parameter.server.server.logic.Sim
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types._
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.{IDGenerator, Types}
 import eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic.TrainAndEvalWorkerLogic
+import org.apache.flink.api.common.functions.FlatMapFunction
 import org.apache.flink.core.fs.FileSystem
 import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction
 import org.apache.flink.streaming.api.scala._
 import org.apache.flink.streaming.api.scala.function.ProcessWindowFunction
-import org.apache.flink.streaming.api.windowing.assigners.TumblingProcessingTimeWindows
+import org.apache.flink.streaming.api.windowing.assigners.{TumblingProcessingTimeWindows, WindowAssigner}
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow
 import org.apache.flink.util.Collector
+
+import scala.collection.mutable.ArrayBuffer
 
 object OnlineTrainAndEval {
 
@@ -25,8 +28,8 @@ object OnlineTrainAndEval {
     lazy val factorInitDesc = RangedRandomFactorInitializerDescriptor(10, -0.01, 0.01)
 
     val ps = new ParameterServer(
-      env, "localhost:", "9093", "serverToWorkerTopic", "workerToServerTopic", "data/test_batch.csv",
-      new TrainAndEvalWorkerLogic(0.01, 10, -0.01, 0.01, 50, 9),
+      env, "localhost:", "9093", "serverToWorkerTopic", "workerToServerTopic", "data/train_batch.csv",
+      new TrainAndEvalWorkerLogic(0.01, 10, -0.01, 0.01, 50, 9, bucketSize = 10),
       new SimpleServerLogic(x => factorInitDesc.open().nextFactor(x),  { (vec, deltaVec) => Types.vectorSum(vec, deltaVec)}), broadcastServerToWorkers = true,
       workerInputParse =  workerInputParse, workerToServerParse =  workerToServerParse)
 
@@ -44,7 +47,7 @@ object OnlineTrainAndEval {
       }
     })
       .keyBy(_.evaluationId)
-      .window(TumblingProcessingTimeWindows.of(Time.seconds(4)))
+      .window(TumblingProcessingTimeWindows.of(Time.minutes(3)))
       .process(new ProcessWindowFunction[EvaluationOutput, Double, Long, TimeWindow] {
         override def process(key: Long, context: Context, elements: Iterable[EvaluationOutput], out: Collector[Double]): Unit = {
           val topK = elements.map(_.topK).fold(List())((a,b) => a ::: b).sortBy(-_._2).map(_._1).distinct.take(K)
@@ -52,8 +55,19 @@ object OnlineTrainAndEval {
           out.collect(ndcg(topK, targetItemId))
         }
       })
-      .writeAsText("data/output/nDCG", FileSystem.WriteMode.OVERWRITE)
+        .flatMap(new FlatMapFunction[Double, Double] {
+          val nDCGs = new ArrayBuffer[Double]()
+          override def flatMap(value: Double, out: Collector[Double]): Unit = {
+            nDCGs += value
+            if(nDCGs.size % 10000 == 0){
+              out.collect(nDCGs.sum / nDCGs.size)
+            }
+          }
+        })
       .setParallelism(1)
+        .print()
+        .setParallelism(1)
+
 
     env.execute()
   }

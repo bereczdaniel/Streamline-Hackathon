@@ -79,6 +79,10 @@ object Types {
     }
     res
   }
+
+   def vectorLengthSqrt(v: Parameter): Double = {
+     dotProduct(v, v)
+   }
 }
 
 object IDGenerator {
