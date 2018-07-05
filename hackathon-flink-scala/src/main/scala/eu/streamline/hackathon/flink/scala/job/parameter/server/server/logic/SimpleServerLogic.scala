@@ -1,8 +1,6 @@
 package eu.streamline.hackathon.flink.scala.job.parameter.server.server.logic
 
-import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types._
-import eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic.ServerLogic
 
 import scala.collection.mutable
 
@@ -13,13 +11,15 @@ class SimpleServerLogic(_init: Int => Parameter, _update: (Parameter, Parameter)
   @transient lazy val update: (Parameter, Parameter) => Parameter = _update
 
 
-  override def map(value: Types.WorkerToServer): Either[Types.ServerOut, Types.ServerToWorker] = {
+  override def map(value: Message): Either[ParameterServerOutput, PullAnswer] = {
     value match {
       case Pull(id, source) =>
-        Right(ServerToWorker(id, source, state.getOrElseUpdate(id, init(id))))
+        Right(PullAnswer(id, source, state.getOrElseUpdate(id, init(id))))
       case Push(id, parameter) =>
         state.update(id, update(parameter, state.getOrElseUpdate(id, init(id))))
-        Left(ServerOut(id, state(id)))
+        Left(VectorModelOutput(id, state(id)))
+      case _ =>
+        throw new NotSupportedMessage
     }
   }
 }
