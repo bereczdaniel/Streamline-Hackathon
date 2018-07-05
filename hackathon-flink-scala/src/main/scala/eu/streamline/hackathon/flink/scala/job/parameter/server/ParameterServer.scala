@@ -14,7 +14,7 @@ import org.apache.flink.util.Collector
 
 class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvironment,
                       host: String, port: String, serverToWorkerTopic: String, workerToServerTopic: String, path: String,
-                      workerLogic: WorkerLogic, serverLogic: ServerLogic,
+                      workerLogic: WorkerLogic, serverLogic: ServerLogic, broadcastWorkerInput: Boolean = false,
                       workerInputParse: String => WorkerInput, workerToServerParse: String => Message) {
 
   def pipeline(): ConnectedStreams[ParameterServerOutput, ParameterServerOutput] = {
@@ -65,13 +65,18 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
       .keyBy(_.destination)
   }
 
-  def workerInput(inputStream: DataStream[WorkerInput], serverToWorkerStream: DataStream[PullAnswer]): ConnectedStreams[WorkerInput, PullAnswer] = {
-    inputStream
-      .connect(serverToWorkerStream)
-      .keyBy(_.id, _.workerSource)
+  def workerInput(inputStream: DataStream[WorkerInput], serverToWorkerStream: DataStream[PullAnswer]): ConnectedStreams[PullAnswer, WorkerInput] = {
+    if (broadcastWorkerInput)
+      serverToWorkerStream
+        .keyBy(_.workerSource)
+        .connect(inputStream.broadcast)
+    else
+      serverToWorkerStream
+        .connect(inputStream)
+        .keyBy(_.workerSource, _.id)
   }
 
-  def wl(workerInputStream: ConnectedStreams[WorkerInput, PullAnswer]): DataStream[Either[ParameterServerOutput, Message]] = {
+  def wl(workerInputStream: ConnectedStreams[PullAnswer, WorkerInput]): DataStream[Either[ParameterServerOutput, Message]] = {
     workerInputStream
       .flatMap(workerLogic)
   }

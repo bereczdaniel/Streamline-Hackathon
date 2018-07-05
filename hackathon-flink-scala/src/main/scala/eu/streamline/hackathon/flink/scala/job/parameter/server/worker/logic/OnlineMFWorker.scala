@@ -14,7 +14,7 @@ class OnlineMFWorker(learningRate: Double, numFactors: Int, rangeMin: Double, ra
   val model = new mutable.HashMap[ItemId, Parameter]()
   val ratingQueue =  new mutable.HashMap[UserId, mutable.Queue[Rating]]()
 
-  override def flatMap1(value: WorkerInput, out: Collector[Either[ParameterServerOutput, Message]]): Unit = {
+  override def flatMap2(value: WorkerInput, out: Collector[Either[ParameterServerOutput, Message]]): Unit = {
 
     value match {
       case r: Rating =>
@@ -30,7 +30,7 @@ class OnlineMFWorker(learningRate: Double, numFactors: Int, rangeMin: Double, ra
     }
   }
 
-  override def flatMap2(value: PullAnswer, out: Collector[Either[ParameterServerOutput, Message]]): Unit = {
+  override def flatMap1(value: PullAnswer, out: Collector[Either[ParameterServerOutput, Message]]): Unit = {
     val rating = ratingQueue(value.targetId).dequeue()
     val userVector = value.parameter
     val itemVector = model.getOrElseUpdate(rating.itemId, factorInitDesc.open().nextFactor(rating.itemId))
