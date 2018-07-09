@@ -15,7 +15,7 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, rangeMin: D
   lazy val workerId: Int = getRuntimeContext.getIndexOfThisSubtask
 
   val model = new mutable.HashMap[ItemId, Parameter]()
-  val requestQueue =  new mutable.HashMap[UserId, mutable.Queue[EvaluationRequest]]()
+  val requestQueue =  new mutable.HashMap[Long, mutable.Queue[EvaluationRequest]]()
   def itemIds: Array[ItemId] = model.keySet.toArray
 
 
@@ -25,7 +25,7 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, rangeMin: D
     value match {
       case eval: EvaluationRequest =>
         requestQueue.getOrElseUpdate(
-          eval.userId,
+          eval.evaluationId,
           mutable.Queue[EvaluationRequest]()
         ).enqueue(eval)
 
@@ -42,8 +42,8 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, rangeMin: D
     val userVector = value.parameter
     val topK: TopK = generateLocalTopK(userVector)
 
-    try{
-      val request = requestQueue(value.targetId).dequeue()
+    try {
+      val request = requestQueue(value.workerSource).dequeue()
 
       val itemVector = model.getOrElseUpdate(request.itemId, factorInitDesc.open().nextFactor(request.itemId))
 

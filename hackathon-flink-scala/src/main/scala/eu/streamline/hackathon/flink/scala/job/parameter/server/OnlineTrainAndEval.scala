@@ -9,8 +9,8 @@ import org.apache.flink.api.common.functions.FlatMapFunction
 import org.apache.flink.core.fs.FileSystem
 import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.streaming.api.scala.function.ProcessWindowFunction
-import org.apache.flink.streaming.api.windowing.assigners.{TumblingProcessingTimeWindows, WindowAssigner}
+import org.apache.flink.streaming.api.scala.function.{ProcessAllWindowFunction, ProcessWindowFunction}
+import org.apache.flink.streaming.api.windowing.assigners.{ProcessingTimeSessionWindows, TumblingProcessingTimeWindows, WindowAssigner}
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow
 import org.apache.flink.util.Collector
@@ -21,21 +21,22 @@ object OnlineTrainAndEval {
 
   def main(args: Array[String]): Unit = {
     val K = 100
+    val parallelism = 2
     val env = StreamExecutionEnvironment.getExecutionEnvironment
-    env.setParallelism(4)
+    env.setParallelism(parallelism)
 
 
     lazy val factorInitDesc = RangedRandomFactorInitializerDescriptor(10, -0.01, 0.01)
 
     val ps = new ParameterServer(
-      env, "localhost:", "9093", "serverToWorkerTopic", "workerToServerTopic", "data/train_batch.csv",
+      env, "localhost:", "9093", "serverToWorkerTopic", "workerToServerTopic", "data/perf.csv",
       new TrainAndEvalWorkerLogic(0.01, 10, -0.01, 0.01, 50, 9, bucketSize = 10),
       new SimpleServerLogic(x => factorInitDesc.open().nextFactor(x),  { (vec, deltaVec) => Types.vectorSum(vec, deltaVec)}), broadcastServerToWorkers = true,
       workerInputParse =  workerInputParse, workerToServerParse =  workerToServerParse)
 
     val psOutput = ps.pipeline()
 
-    psOutput.flatMap(new CoFlatMapFunction[ParameterServerOutput, ParameterServerOutput, EvaluationOutput] {
+    val workerOut = psOutput.flatMap(new CoFlatMapFunction[ParameterServerOutput, ParameterServerOutput, EvaluationOutput] {
       override def flatMap1(value: ParameterServerOutput, out: Collector[EvaluationOutput]): Unit =
         value match {
           case eval: EvaluationOutput => out.collect(eval)
@@ -46,8 +47,39 @@ object OnlineTrainAndEval {
 
       }
     })
+
+
+    workerOut.writeAsText("data/output/debugWorker_p2", FileSystem.WriteMode.OVERWRITE).setParallelism(1)
+
+    val mergedTopK = workerOut
       .keyBy(_.evaluationId)
-      .window(TumblingProcessingTimeWindows.of(Time.minutes(3)))
+      .flatMapWithState((localTopK: EvaluationOutput, allTopK: Option[List[EvaluationOutput]]) => {
+        allTopK match {
+          case None =>
+            (List.empty, Some(List(localTopK)))
+          case Some(currentState) =>
+            if(currentState.length < parallelism-1) {
+              (List.empty, Some(currentState.++:(List(localTopK))))
+            }
+            else {
+              val topK = currentState.map(_.topK).fold(List())((a,b) => a ::: b).sortBy(-_._2).map(_._1).distinct.take(K)
+              val targetItemId = currentState.map(_.itemId).max
+              (List((localTopK.evaluationId, ndcg(topK, targetItemId))), None)
+            }
+        }
+      })
+
+    mergedTopK.writeAsText("data/output/debugMerge", FileSystem.WriteMode.OVERWRITE).setParallelism(1)
+
+    mergedTopK
+      .windowAll(ProcessingTimeSessionWindows.withGap(Time.seconds(10)))
+      .process(new ProcessAllWindowFunction[(Long, Double), (Int, Double), TimeWindow] {
+        override def process(context: Context, elements: Iterable[(Long, Double)], out: Collector[(ItemId, Double)]): Unit = {
+          val count = elements.size
+          out.collect((count, elements.map(_._2).sum / count))
+        }
+      })
+      /*.window(TumblingProcessingTimeWindows.of(Time.minutes(3)))
       .process(new ProcessWindowFunction[EvaluationOutput, Double, Long, TimeWindow] {
         override def process(key: Long, context: Context, elements: Iterable[EvaluationOutput], out: Collector[Double]): Unit = {
           val topK = elements.map(_.topK).fold(List())((a,b) => a ::: b).sortBy(-_._2).map(_._1).distinct.take(K)
@@ -64,9 +96,8 @@ object OnlineTrainAndEval {
             }
           }
         })
-      .setParallelism(1)
+      .setParallelism(1)*/
         .print()
-        .setParallelism(1)
 
 
     env.execute()
