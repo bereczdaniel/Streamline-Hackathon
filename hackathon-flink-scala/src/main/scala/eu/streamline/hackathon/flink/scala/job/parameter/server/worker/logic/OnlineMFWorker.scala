@@ -1,7 +1,10 @@
 package eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic
 
-import eu.streamline.hackathon.flink.scala.job.factors.{RangedRandomFactorInitializerDescriptor, SGDUpdater}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.BaseMessages._
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.RecommendationSystemMessages._
+import eu.streamline.hackathon.flink.scala.job.parameter.server.factors.{RangedRandomFactorInitializerDescriptor, SGDUpdater}
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types._
+import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Vector
 import org.apache.flink.util.Collector
 
 import scala.collection.mutable
@@ -31,15 +34,15 @@ class OnlineMFWorker(learningRate: Double, numFactors: Int, rangeMin: Double, ra
   }
 
   override def flatMap1(value: PullAnswer, out: Collector[Either[ParameterServerOutput, Message]]): Unit = {
-    val rating = ratingQueue(value.targetId).dequeue()
+    val rating = ratingQueue(value.source).dequeue()
     val userVector = value.parameter
     val itemVector = model.getOrElseUpdate(rating.itemId, factorInitDesc.open().nextFactor(rating.itemId))
 
-    val (userDelta, itemDelta) = SGDUpdater.delta(rating.rating, userVector, itemVector)
+    val (userDelta, itemDelta) = SGDUpdater.delta(rating.rating, userVector.value, itemVector)
 
-    model.update(rating.itemId, vectorSum(itemDelta, itemVector))
+    model.update(rating.itemId, Vector.vectorSum(itemDelta, itemVector))
 
-    out.collect(Right(Push(value.targetId, userDelta)))
-    out.collect(Left(VectorModelOutput(rating.itemId, model(rating.itemId))))
+    out.collect(Right(Push(value.source, Vector(userDelta))))
+    out.collect(Left(VectorModelOutput(rating.itemId, Vector(model(rating.itemId)))))
   }
 }

@@ -1,14 +1,17 @@
 package eu.streamline.hackathon.flink.scala.job.parameter.server.server.logic
 
-import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types._
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.BaseMessages.{Message, NotSupportedMessage, ParameterServerOutput}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.RecommendationSystemMessages.{Pull, PullAnswer, Push, VectorModelOutput}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types.ItemId
+import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Vector
 
 import scala.collection.mutable
 
-class SimpleServerLogic(_init: Int => Parameter, _update: (Parameter, Parameter) => Parameter) extends ServerLogic {
+class SimpleServerLogic(_init: Int => Vector, _update: (Vector, Vector) => Vector) extends ServerLogic {
 
-  val state = new mutable.HashMap[Int, Parameter]()
-  @transient lazy val init: ItemId => Parameter = _init
-  @transient lazy val update: (Parameter, Parameter) => Parameter = _update
+  val state = new mutable.HashMap[Int, Vector]()
+  @transient lazy val init: ItemId => Vector = _init
+  @transient lazy val update: (Vector, Vector) => Vector = _update
 
 
   override def map(value: Message): Either[ParameterServerOutput, PullAnswer] = {

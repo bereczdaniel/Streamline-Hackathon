@@ -2,7 +2,9 @@ package eu.streamline.hackathon.flink.scala.job.parameter.server.IO
 
 import java.io.{File, PrintWriter}
 
-import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types.{NotSupportedOutput, Parameter, ParameterServerOutput, VectorModelOutput}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.BaseMessages.{NotSupportedOutput, ParameterServerOutput}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.RecommendationSystemMessages.VectorModelOutput
+import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types.Parameter
 
 import scala.collection.mutable
 
@@ -13,7 +15,7 @@ class ParameterWrite(file: String) extends ParameterServerOutputSink {
   override def invoke(value: ParameterServerOutput): Unit = {
     value match {
       case out: VectorModelOutput =>
-        model.update(out.id, out.parameter)
+        model.update(out.id, out.parameter.value)
       case _ =>
         throw new NotSupportedOutput
     }

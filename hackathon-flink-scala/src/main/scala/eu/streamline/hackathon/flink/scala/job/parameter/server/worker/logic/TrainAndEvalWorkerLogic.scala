@@ -1,27 +1,34 @@
 package eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic
-import eu.streamline.hackathon.flink.scala.job.factors.{RangedRandomFactorInitializerDescriptor, SGDUpdater}
-import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types
+import eu.streamline.hackathon.flink.scala.job.parameter.server.factors.{RangedRandomFactorInitializerDescriptor, SGDUpdater}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.BaseMessages._
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.RecommendationSystemMessages._
+import eu.streamline.hackathon.flink.scala.job.parameter.server.pruning._
+import eu.streamline.hackathon.flink.scala.job.parameter.server.pruning.LEMPPruningFunctions._
+import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Vector
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types._
+import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types
 import org.apache.flink.util.Collector
 
 import scala.collection.mutable
 import scala.util.Random
 import scala.util.control.Breaks._
 
-class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, rangeMin: Double, rangeMax: Double, workerK: Int, negativeSampleRate: Int, bucketSize: Int) extends WorkerLogic {
+class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, negativeSampleRate: Int,
+                              rangeMin: Double, rangeMax: Double,
+                              workerK: Int, bucketSize: Int, pruningStrategy: LEMPPruningStrategy = LI(5, 2.5)) extends WorkerLogic {
 
   lazy val factorInitDesc = RangedRandomFactorInitializerDescriptor(numFactors, rangeMin, rangeMax)
   lazy val SGDUpdater = new SGDUpdater(learningRate)
   lazy val workerId: Int = getRuntimeContext.getIndexOfThisSubtask
 
-  val model = new mutable.HashMap[ItemId, Parameter]()
+  val model = new mutable.HashMap[ItemId, Vector]()
   val requestQueue =  new mutable.HashMap[Long, mutable.Queue[EvaluationRequest]]()
   def itemIds: Array[ItemId] = model.keySet.toArray
 
 
   val itemIdsDescendingByLength = new mutable.TreeSet[(Double, ItemId)]()(implicitly[Ordering[(Double, ItemId)]].reverse)
 
-  override def flatMap2(value: Types.WorkerInput, out: Collector[Either[Types.ParameterServerOutput, Types.Message]]): Unit = {
+  override def flatMap2(value: WorkerInput, out: Collector[Either[ParameterServerOutput, Message]]): Unit = {
     value match {
       case eval: EvaluationRequest =>
         requestQueue.getOrElseUpdate(
@@ -38,43 +45,46 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, rangeMin: D
 
 
 
-  override def flatMap1(value: Types.PullAnswer, out: Collector[Either[Types.ParameterServerOutput, Types.Message]]): Unit = {
+  override def flatMap1(value: PullAnswer, out: Collector[Either[ParameterServerOutput, Message]]): Unit = {
     val userVector = value.parameter
-    val topK: TopK = generateLocalTopK(userVector)
+    val topK: TopK = generateLocalTopK(userVector, pruningStrategy)
 
     try {
-      val request = requestQueue(value.workerSource).dequeue()
+      val request = requestQueue(value.destination).dequeue()
 
-      val itemVector = model.getOrElseUpdate(request.itemId, factorInitDesc.open().nextFactor(request.itemId))
+      val itemVector = model.getOrElseUpdate(request.itemId, Vector(factorInitDesc.open().nextFactor(request.itemId)))
 
-      val userDelta: Parameter = train(userVector, request, itemVector)
+      val userDelta: Vector = train(userVector, request, itemVector)
 
 
-      out.collect(Right(Push(value.targetId, userDelta)))
+      out.collect(Right(Push(value.source, userDelta)))
       out.collect(Left(EvaluationOutput(request.itemId, request.evaluationId, topK)))
     }
     catch {
       case _ : NoSuchElementException =>
-        out.collect(Left(EvaluationOutput(-1, value.workerSource, topK)))
+        out.collect(Left(EvaluationOutput(-1, value.destination, topK)))
     }
   }
 
-  def generateLocalTopK(userVector: Parameter): TopK = {
+  def generateLocalTopK(userVector: Vector, pruningStrategy: LEMPPruningStrategy): TopK = {
+
     val topK = new mutable.PriorityQueue[(Double, ItemId)]()(implicitly[Ordering[(Double, ItemId)]].reverse)
     val buckets = itemIdsDescendingByLength.toList.grouped(bucketSize)
-    val userVectorLength = vectorLengthSqrt(userVector)
+
+    val userVectorLength = userVector.length
 
     breakable{
       for(currentBucket <- buckets){
         if (!((topK.length < workerK) || (currentBucket.head._1 * userVectorLength > topK.head._1))){
           break()
         }
-        //TODO check with filter
-        val vectors = currentBucket.map(x => (x._2, model(x._2)))
+        val (focus, focusSet) = generateFocusSet(userVector, pruningStrategy)
+
+        val candidates = pruneCandidateSet(topK, currentBucket, pruningStrategy, focus, focusSet, userVector)
 
         //TODO check math
-        for (item <- vectors) {
-          val userItemDotProduct = dotProduct(userVector, item._2)
+        for (item <- candidates) {
+          val userItemDotProduct = Vector.dotProduct(userVector, item._2)
 
           if (topK.size < workerK) {
             topK += ((userItemDotProduct, item._1))
@@ -94,17 +104,17 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, rangeMin: D
       .toList
   }
 
-  def train(userVector: Parameter, request: EvaluationRequest, itemVector: Parameter): Parameter = {
+  def train(userVector: Vector, request: EvaluationRequest, itemVector: Vector): Vector = {
     val negativeUserDelta = calculateNegativeSamples(Some(request.itemId), userVector)
-    val (positiveUserDelta, positiveItemDelta) = SGDUpdater.delta(request.rating, userVector, itemVector)
+    val (positiveUserDelta, positiveItemDelta) = SGDUpdater.delta(request.rating, userVector.value, itemVector.value)
 
-    val updatedItemVector = vectorSum(itemVector, positiveItemDelta)
+    val updatedItemVector = Vector.vectorSum(itemVector, Vector(positiveItemDelta))
     model.update(request.itemId, updatedItemVector)
-    itemIdsDescendingByLength.add((vectorLengthSqrt(updatedItemVector), request.itemId))
-    vectorSum(negativeUserDelta, positiveUserDelta)
+    itemIdsDescendingByLength.add((updatedItemVector.length, request.itemId))
+    Vector(Vector.vectorSum(negativeUserDelta, positiveUserDelta))
   }
 
-  def calculateNegativeSamples(itemId: Option[ItemId], userVector: Parameter): Parameter = {
+  def calculateNegativeSamples(itemId: Option[ItemId], userVector: Vector): Parameter = {
     val possibleNegativeItems =
       itemId match {
         case Some(id) => itemIds.filterNot(_ == id)
@@ -116,9 +126,57 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, rangeMin: D
         val negItemId = possibleNegativeItems(Random.nextInt(possibleNegativeItems.length))
         val negItemVector = model(negItemId)
 
-        val (userDelta, itemDelta) = SGDUpdater.delta(0.0, userVector, negItemVector)
-        model(negItemId) = vectorSum(itemDelta, negItemVector)
-        vectorSum(userDelta, vector)
+        val (userDelta, itemDelta) = SGDUpdater.delta(0.0, userVector.value, negItemVector.value)
+        model(negItemId) = Vector(Vector.vectorSum(itemDelta, negItemVector.value))
+        Vector.vectorSum(userDelta, vector)
       })
+  }
+
+  def generateFocusSet(userVector: Vector, pruning: LEMPPruningStrategy): (ItemId, Array[ItemId]) = {
+    val focus = ((1 until userVector.value.length) :\ 0) { (i, f) =>
+      if (userVector.value(i) * userVector.value(i) > userVector.value(f) * userVector.value(f))
+        i
+      else
+        f
+    }
+
+    // focus coordinate set for incremental pruning test
+    val focusSet = Array.range(0, userVector.value.length - 1)
+      .sortBy{ x => -userVector.value(x) * userVector.value(x) }
+      .take(pruning match {
+        case INCR(x)=> x
+        case LI(x, _)=> x
+        case _=> 0
+      })
+
+    (focus, focusSet)
+  }
+
+  def pruneCandidateSet(topK: mutable.PriorityQueue[(Double, ItemId)], currentBucket: List[(Double, Types.ItemId)],
+                        pruning: LEMPPruningStrategy,
+                        focus: Int, focusSet: Array[Int],
+                        userVector: Vector): List[(ItemId, Vector)] = {
+    val theta = if (topK.length < workerK) 0.0 else topK.head._1
+    val theta_b_q = theta / (currentBucket.head._1 * userVector.length)
+    val vectors = currentBucket.map(x => (x._2, model(x._2)))
+
+
+
+    vectors.filter(
+      pruning match {
+      case LENGTH() => lengthPruning(theta / userVector.length)
+      case COORD() => coordPruning(focus, userVector, theta_b_q)
+      case INCR(_) => incrPruning(focusSet, userVector, theta)
+      case LC(threshold) =>
+        if (currentBucket.head._1 > currentBucket.last._1 * threshold)
+          lengthPruning(theta / userVector.length)
+        else
+          coordPruning(focus, userVector, theta_b_q)
+      case LI(_, threshold) =>
+        if (currentBucket.head._1 > currentBucket.last._1 * threshold)
+          lengthPruning(theta / userVector.length)
+        else
+          incrPruning(focusSet, userVector, theta)
+    })
   }
 }

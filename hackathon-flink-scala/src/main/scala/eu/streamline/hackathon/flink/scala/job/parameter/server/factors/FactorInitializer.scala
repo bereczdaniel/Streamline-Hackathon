@@ -1,4 +1,4 @@
-package eu.streamline.hackathon.flink.scala.job.factors
+package eu.streamline.hackathon.flink.scala.job.parameter.server.factors
 
 /**
   * Holds a function to initialize a vector based on its id.

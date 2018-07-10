@@ -3,8 +3,9 @@ package eu.streamline.hackathon.flink.scala.job.parameter.server
 import java.util.Properties
 
 import eu.streamline.hackathon.flink.scala.job.parameter.server.IO.ParameterServerOutputSink
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.BaseMessages.{Message, ParameterServerOutput, WorkerInput}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.RecommendationSystemMessages._
 import eu.streamline.hackathon.flink.scala.job.parameter.server.server.logic.ServerLogic
-import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types._
 import eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic.WorkerLogic
 import org.apache.flink.api.common.serialization
 import org.apache.flink.api.common.serialization.SimpleStringSchema
@@ -72,7 +73,7 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
     else
       serverToWorkerStream
         .connect(inputStream)
-        .keyBy(_.workerSource, _.id)
+        .keyBy(_.source, _.id)
   }
 
   def wl(workerInputStream: ConnectedStreams[PullAnswer, WorkerInput]): DataStream[Either[ParameterServerOutput, Message]] = {

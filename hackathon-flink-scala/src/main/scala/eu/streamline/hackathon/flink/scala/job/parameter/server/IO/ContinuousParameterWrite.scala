@@ -1,6 +1,6 @@
 package eu.streamline.hackathon.flink.scala.job.parameter.server.IO
 
-import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types.ParameterServerOutput
+import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.BaseMessages.ParameterServerOutput
 import org.apache.flink.api.java.io.TextOutputFormat
 import org.apache.flink.core.fs.{FileSystem, Path}
 import org.apache.flink.streaming.api.functions.sink.OutputFormatSinkFunction
