@@ -1,18 +1,19 @@
 package eu.streamline.hackathon.flink.scala.job.parameter.server
 
-import eu.streamline.hackathon.flink.scala.job.parameter.server.factors.RangedRandomFactorInitializerDescriptor
 import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.BaseMessages._
 import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.RecommendationSystemMessages.{EvaluationOutput, EvaluationRequest, Pull, Push}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.factors.RangedRandomFactorInitializerDescriptor
 import eu.streamline.hackathon.flink.scala.job.parameter.server.server.logic.SimpleServerLogic
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types.ItemId
-import eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic.TrainAndEvalWorkerLogic
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.{IDGenerator, Vector}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.worker.logic.TrainAndEvalWorkerLogic
+import org.apache.flink.core.fs.FileSystem
 import org.apache.flink.streaming.api.TimeCharacteristic
 import org.apache.flink.streaming.api.functions.co.CoFlatMapFunction
 import org.apache.flink.streaming.api.functions.timestamps.BoundedOutOfOrdernessTimestampExtractor
 import org.apache.flink.streaming.api.scala._
-import org.apache.flink.streaming.api.scala.function.{ProcessAllWindowFunction, ProcessWindowFunction}
-import org.apache.flink.streaming.api.windowing.assigners.{ProcessingTimeSessionWindows, TumblingEventTimeWindows}
+import org.apache.flink.streaming.api.scala.function.ProcessAllWindowFunction
+import org.apache.flink.streaming.api.windowing.assigners.ProcessingTimeSessionWindows
 import org.apache.flink.streaming.api.windowing.time.Time
 import org.apache.flink.streaming.api.windowing.windows.TimeWindow
 import org.apache.flink.util.Collector
@@ -23,7 +24,6 @@ object OnlineTrainAndEval {
     val K = 100
     val parallelism = 4
     val env = StreamExecutionEnvironment.getExecutionEnvironment
-    env.setStreamTimeCharacteristic(TimeCharacteristic.EventTime)
     env.setParallelism(parallelism)
 
 
@@ -49,21 +49,26 @@ object OnlineTrainAndEval {
       }
     })
 
+    workerOut.writeAsText("data/output/debugWorker", FileSystem.WriteMode.OVERWRITE).setParallelism(1)
+
     val mergedTopK = workerOut
       .keyBy(_.evaluationId)
-      .flatMapWithState((localTopK: EvaluationOutput, allTopK: Option[List[EvaluationOutput]]) => {
-        allTopK match {
+      .flatMapWithState((localTopK: EvaluationOutput, aggregatedTopKs: Option[List[EvaluationOutput]]) => {
+        aggregatedTopKs match {
           case None =>
             (List.empty, Some(List(localTopK)))
           case Some(currentState) =>
-            if(currentState.length < parallelism-1) {
+            if(currentState.isEmpty)
+              (List.empty, Some(List()))
+            else if(currentState.length < parallelism-1) {
               (List.empty, Some(currentState.++:(List(localTopK))))
             }
             else {
-              val topK = currentState.map(_.topK).fold(List())((a,b) => a ::: b).sortBy(-_._2).map(_._1).distinct.take(K)
-              val targetItemId = currentState.map(_.itemId).max
-              val ts = currentState.maxBy(_.ts).ts
-              (List((localTopK.evaluationId, ndcg(topK, targetItemId), ts)), None)
+              val allTopK = currentState.++(List(localTopK))
+              val topK = allTopK.map(_.topK).fold(List())((a,b) => a ::: b).sortBy(-_._2).map(_._1).distinct.take(K)
+              val targetItemId = allTopK.maxBy(_.itemId).itemId
+              val ts = allTopK.maxBy(_.ts).ts
+              (List((localTopK.evaluationId, ndcg(topK, targetItemId), ts)), Some(List()))
             }
         }
       })
@@ -73,10 +78,15 @@ object OnlineTrainAndEval {
       .process(new ProcessAllWindowFunction[(Long, Double, Long), (Int, Int, Double), TimeWindow] {
         override def process(context: Context, elements: Iterable[(Long, Double, Long)], out: Collector[(ItemId, Int, Double)]): Unit = {
 
-          elements
+
+          println(elements.size)
+          val grouped = elements
             .groupBy(x => (x._3 / 86400).toInt)
+
+          val output = grouped
             .map(x => (x._2.size, x._1, x._2.map(_._2).sum / x._2.size))
-            .foreach(out.collect)
+
+            output.foreach(out.collect)
         }
       })
         .print()
@@ -109,15 +119,4 @@ object OnlineTrainAndEval {
 
   def log2(x: Double): Double =
     math.log(x) / math.log(2)
-
-  /**
-    * Define how can you extract timestamp from a ViewEvent
-    * @param maxOutOfOrderness: Allowed delay in millisecs
-    */
-  class TimeExtractor(maxOutOfOrderness: Time)
-    extends BoundedOutOfOrdernessTimestampExtractor[(Long, Double, Long)](maxOutOfOrderness) {
-    override def extractTimestamp(element: (Long, Double, Long)): Long = {
-      element._3
-    }
-  }
 }

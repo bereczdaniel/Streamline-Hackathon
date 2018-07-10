@@ -73,7 +73,7 @@ class ParameterServer[Out <: ParameterServerOutputSink](env: StreamExecutionEnvi
     else
       serverToWorkerStream
         .connect(inputStream)
-        .keyBy(_.source, _.id)
+        .keyBy(_.destination, _.id)
   }
 
   def wl(workerInputStream: ConnectedStreams[PullAnswer, WorkerInput]): DataStream[Either[ParameterServerOutput, Message]] = {

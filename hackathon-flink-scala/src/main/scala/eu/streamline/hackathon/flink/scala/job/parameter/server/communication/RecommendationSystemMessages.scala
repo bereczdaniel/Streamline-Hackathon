@@ -23,7 +23,7 @@ object RecommendationSystemMessages {
 
   case class PullAnswer(override val source: Int, override val destination: Int, parameter: Vector) extends Message(source, destination) {
     override def toString: String =
-      destination.toString + ":" + source.toString + ":" + parameter.value.tail.foldLeft(parameter.value.head.toString)((acc, c) => acc + "," + c.toString)
+      source.toString + ":" + destination.toString + ":" + parameter.value.tail.foldLeft(parameter.value.head.toString)((acc, c) => acc + "," + c.toString)
   }
 
   def pullAnswerFromString(line: String): PullAnswer = {
@@ -36,9 +36,9 @@ object RecommendationSystemMessages {
       "Push:" + targetId.toString + ":" + parameter.value.tail.foldLeft(parameter.value.head.toString)((acc, c) => acc + "," + c.toString)
     }
   }
-  case class Pull(targetId: Int, workerSource: Int) extends Message(targetId, workerSource) {
+  case class Pull(override val source: Int, override val destination: ItemId) extends Message(source, destination) {
     override def toString: String =
-      "Pull:" + targetId.toString + ":" + source.toString
+      "Pull:" + source.toString + ":" + destination.toString
   }
 
 }

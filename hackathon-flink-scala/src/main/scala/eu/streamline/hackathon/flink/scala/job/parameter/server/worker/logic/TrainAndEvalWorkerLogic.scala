@@ -22,7 +22,7 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, negativeSam
   lazy val workerId: Int = getRuntimeContext.getIndexOfThisSubtask
 
   val model = new mutable.HashMap[ItemId, Vector]()
-  val requestQueue =  new mutable.HashMap[Long, mutable.Queue[EvaluationRequest]]()
+  val requestBuffer =  new mutable.HashMap[Long, EvaluationRequest]()
   def itemIds: Array[ItemId] = model.keySet.toArray
 
 
@@ -31,12 +31,9 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, negativeSam
   override def flatMap2(value: WorkerInput, out: Collector[Either[ParameterServerOutput, Message]]): Unit = {
     value match {
       case eval: EvaluationRequest =>
-        requestQueue.getOrElseUpdate(
-          eval.evaluationId,
-          mutable.Queue[EvaluationRequest]()
-        ).enqueue(eval)
+        requestBuffer.update(eval.evaluationId, eval)
 
-        out.collect(Right(Pull(eval.userId, eval.evaluationId.toInt)))
+        out.collect(Right(Pull(eval.evaluationId.toInt, eval.userId)))
 
       case _ =>
         throw new NotSupportedWorkerInput
@@ -49,20 +46,18 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, negativeSam
     val userVector = value.parameter
     val topK: TopK = generateLocalTopK(userVector, pruningStrategy)
 
-    try {
-      val request = requestQueue(value.destination).dequeue()
+    val _request = requestBuffer.get(value.destination)
 
-      val itemVector = model.getOrElseUpdate(request.itemId, Vector(factorInitDesc.open().nextFactor(request.itemId)))
-
-      val userDelta: Vector = train(userVector, request, itemVector)
-
-
-      out.collect(Right(Push(value.source, userDelta)))
-      out.collect(Left(EvaluationOutput(request.itemId, request.evaluationId, topK, request.ts)))
-    }
-    catch {
-      case _ : NoSuchElementException =>
+    _request match {
+      case None =>
         out.collect(Left(EvaluationOutput(-1, value.destination, topK, -1)))
+      case Some(request) =>
+        val itemVector = model.getOrElseUpdate(request.itemId, Vector(factorInitDesc.open().nextFactor(request.itemId)))
+
+        val userDelta: Vector = train(userVector, request, itemVector)
+
+        out.collect(Right(Push(value.source, userDelta)))
+        out.collect(Left(EvaluationOutput(request.itemId, request.evaluationId, topK, request.ts)))
     }
   }
 
