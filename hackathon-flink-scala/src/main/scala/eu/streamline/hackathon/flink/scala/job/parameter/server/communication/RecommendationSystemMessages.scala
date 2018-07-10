@@ -1,13 +1,13 @@
 package eu.streamline.hackathon.flink.scala.job.parameter.server.communication
 
 import eu.streamline.hackathon.flink.scala.job.parameter.server.communication.BaseMessages.{Message, ParameterServerOutput, WorkerInput}
-import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types.{ItemId, Parameter, TopK, UserId}
+import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Types.{ItemId, TopK, UserId}
 import eu.streamline.hackathon.flink.scala.job.parameter.server.utils.Vector
 
 object RecommendationSystemMessages {
 
   case class Rating(userId: UserId, itemId: ItemId, rating: Double) extends WorkerInput(itemId)
-  case class EvaluationRequest(userId: UserId, itemId: ItemId, evaluationId: Long, rating: Double) extends WorkerInput(itemId)
+  case class EvaluationRequest(userId: UserId, itemId: ItemId, evaluationId: Long, rating: Double, ts: Long) extends WorkerInput(itemId)
   case class RecommendationRequest(userId: UserId, recommendationId: Int) extends WorkerInput(userId)
   case class NegativeExample(userId: UserId, itemId: ItemId, rating: Rating) extends WorkerInput(itemId)
 
@@ -19,7 +19,7 @@ object RecommendationSystemMessages {
     override def toString: String =
       userId.toString + ":" + topK.tail.foldLeft(topK.head.toString)((acc, c) => acc + "," + c.toString)
   }
-  case class EvaluationOutput(itemId: ItemId, evaluationId: Long, topK: TopK) extends ParameterServerOutput
+  case class EvaluationOutput(itemId: ItemId, evaluationId: Long, topK: TopK, ts: Long) extends ParameterServerOutput
 
   case class PullAnswer(override val source: Int, override val destination: Int, parameter: Vector) extends Message(source, destination) {
     override def toString: String =

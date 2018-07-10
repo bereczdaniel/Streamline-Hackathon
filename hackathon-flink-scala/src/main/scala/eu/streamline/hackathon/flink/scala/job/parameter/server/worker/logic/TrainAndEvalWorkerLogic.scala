@@ -58,11 +58,11 @@ class TrainAndEvalWorkerLogic(learningRate: Double, numFactors: Int, negativeSam
 
 
       out.collect(Right(Push(value.source, userDelta)))
-      out.collect(Left(EvaluationOutput(request.itemId, request.evaluationId, topK)))
+      out.collect(Left(EvaluationOutput(request.itemId, request.evaluationId, topK, request.ts)))
     }
     catch {
       case _ : NoSuchElementException =>
-        out.collect(Left(EvaluationOutput(-1, value.destination, topK)))
+        out.collect(Left(EvaluationOutput(-1, value.destination, topK, -1)))
     }
   }
 
